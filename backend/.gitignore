@@ -1,0 +1,20 @@
+# ─── Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ─── Virtual Environments ─────────────────────────────────
+venv/
+.venv/
+
+# ─── Environment Variables ────────────────────────────────
+.env
+*.env
+
+# ─── Yapay Zeka Model Dosyaları ───────────────────────────
+SentimentAI_Model/
+*.pt
+*.bin
+*.h5
+*.safetensors
