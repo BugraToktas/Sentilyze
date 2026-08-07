@@ -24,6 +24,30 @@ export const Colors = {
   },
 } as const;
 
+// TriSential marka renk paleti
+export const Brand = {
+  // Ana gradient: mor → mavi
+  primary:        '#7C3AED',   // Violet-600
+  primaryLight:   '#A78BFA',   // Violet-400
+  secondary:      '#2563EB',   // Blue-600
+  secondaryLight: '#60A5FA',   // Blue-400
+
+  // Duygu renkleri
+  positive:       '#10B981',   // Emerald-500
+  negative:       '#EF4444',   // Red-500
+  neutral:        '#F59E0B',   // Amber-500
+
+  // Auth ekranı arka planı
+  authBg:         '#0A0A0F',
+  authCard:       'rgba(255,255,255,0.05)',
+  authBorder:     'rgba(255,255,255,0.08)',
+  authInputBg:    'rgba(255,255,255,0.06)',
+
+  // Gradient tanımları (LinearGradient için dizi olarak)
+  gradientPrimary: ['#7C3AED', '#2563EB'] as const,
+  gradientCard:    ['rgba(124,58,237,0.15)', 'rgba(37,99,235,0.08)'] as const,
+} as const;
+
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
