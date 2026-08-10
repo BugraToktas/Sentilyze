@@ -74,11 +74,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const signInGoogle = async (): Promise<{ error: string | null }> => {
         // OAuth için Supabase Dashboard'da Google provider'ı aktif etmek gerekiyor
+        // Native: "frontend://auth/callback", Web: window.location.origin + "/auth/callback"
+        const redirectTo =
+            typeof window !== 'undefined'
+                ? `${window.location.origin}/auth/callback`
+                : 'trisential://auth/callback';
+
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
-            options: {
-                redirectTo: 'trisential://auth/callback',
-            },
+            options: { redirectTo },
         });
         return { error: error?.message ?? null };
     };

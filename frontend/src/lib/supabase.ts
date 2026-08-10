@@ -30,7 +30,8 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
         storage:          isServer ? noopStorage : AsyncStorage,
         autoRefreshToken: !isServer,
         persistSession:   !isServer,
-        detectSessionInUrl: false,
+        // Web'de OAuth redirect sonrası URL'deki token'ı otomatik yakala
+        detectSessionInUrl: !isServer,
     },
 });
 
