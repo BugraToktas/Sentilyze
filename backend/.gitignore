@@ -12,9 +12,20 @@ venv/
 .env
 *.env
 
-# ─── Yapay Zeka Model Dosyaları ───────────────────────────
+# ─── Yapay Zeka Model Dosyaları (442MB+ — GitHub'a gitmez) ──
+# Modelleri manuel olarak yerleştir: backend/sentilyze_model/
+sentilyze_model/
 SentimentAI_Model/
 *.pt
 *.bin
 *.h5
 *.safetensors
+*.ckpt
+*.pkl
+
+# ─── Build / Cache ────────────────────────────────────────
+*.pyc
+.pytest_cache/
+.mypy_cache/
+dist/
+build/

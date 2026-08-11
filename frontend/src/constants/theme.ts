@@ -67,6 +67,14 @@ const EMOTION_TABLE: Record<string, EmotionMeta> = {
   'Nötr':        { color: '#94A3B8', bg: 'rgba(148,163,184,0.12)', emoji: '😐', label: 'Nötr' },
   'Notr':        { color: '#94A3B8', bg: 'rgba(148,163,184,0.12)', emoji: '😐', label: 'Nötr' }, // ASCII fallback
 
+  // ── Sentilyze modeli — 5 etiket (ASCII) ──
+  // Model config.json: korku / mutluluk / ofke / saskinlik / uzuntu
+  'korku':       { color: '#F97316', bg: 'rgba(249,115,22,0.12)',  emoji: '😨', label: 'Korku' },
+  'mutluluk':    { color: '#22C55E', bg: 'rgba(34,197,94,0.12)',   emoji: '😄', label: 'Mutluluk' },
+  'ofke':        { color: '#EF4444', bg: 'rgba(239,68,68,0.12)',   emoji: '😠', label: 'Öfke' },
+  'saskinlik':   { color: '#A855F7', bg: 'rgba(168,85,247,0.12)',  emoji: '😲', label: 'Şaşkınlık' },
+  'uzuntu':      { color: '#3B82F6', bg: 'rgba(59,130,246,0.12)',  emoji: '😢', label: 'Üzüntü' },
+
   // ── Türkçe çok-duygu modeli etiketleri ──
   'Sevinç':      { color: '#22C55E', bg: 'rgba(34,197,94,0.12)',   emoji: '😄', label: 'Sevinç' },
   'Mutluluk':    { color: '#22C55E', bg: 'rgba(34,197,94,0.12)',   emoji: '😊', label: 'Mutluluk' },

@@ -1,15 +1,13 @@
 """
 Sentilyze API — v2
 ==================
-Çok boyutlu duygu analizi için hazırlanmış, model-bağımsız FastAPI backend.
+Türkçe çok boyutlu duygu analizi FastAPI backend.
 
-Modelden gelen her etiket doğrudan iletilir; artık Olumlu/Olumsuz/Nötr'e
-sabit bağımlılık yoktur. Yeni model eklendiğinde sadece ./SentimentAI_Model
-klasörü değiştirilir, API kodu değişmez.
+Model: ./sentilyze_model
+  BertForSequenceClassification (5 sınıf)
+  Etiketler: korku / mutluluk / ofke / saskinlik / uzuntu
 
-Desteklenen model türleri:
-  - single-label: pipeline, {"label": "joy", "score": 0.92}
-  - multi-label:  pipeline(top_k=None) → [{"label":"joy","score":0.7}, ...]
+Yeni model eklenirse sadece klasoru güncelle, API kodu değişmez.
 """
 
 from fastapi import FastAPI, HTTPException, Query
@@ -45,34 +43,24 @@ async def lifespan(app: FastAPI):
     global emotion_pipe, MODEL_SUPPORTS_MULTI
 
     # --- STARTUP ---
-    print("[BASLATILIYOR] Sentilyze Duygu Modeli RAM'e yukleniyor...")
+    print("[BASLATILIYOR] Sentilyze Duygu Modeli (sentilyze_model) RAM'e yukleniyor...")
     try:
-        # top_k=None → tüm sınıfların skorlarını döndürür (multi-label)
-        # Eski 3-sınıflı model de bu şekilde yüklenir, sonuç 3 eleman olur.
+        # top_k=None → tüm sınıfların skorlarını döndürür
         emotion_pipe = pipeline(
             "text-classification",
-            model="./SentimentAI_Model",
-            tokenizer="./SentimentAI_Model",
+            model="./sentilyze_model",
+            tokenizer="./sentilyze_model",
             device=-1,
-            top_k=None,  # tüm sınıf skorları isteniyor
+            top_k=None,
         )
         MODEL_SUPPORTS_MULTI = True
-        print("[OK] Sentilyze Modeli basariyla yuklendi (multi-label modu).")
-    except Exception as e_multi:
-        print(f"[UYARI] Multi-label modu hatasi: {e_multi}")
-        print("[DENENIYOR] Single-label (eski) mod deneniyor...")
-        try:
-            emotion_pipe = pipeline(
-                "text-classification",
-                model="./SentimentAI_Model",
-                tokenizer="./SentimentAI_Model",
-                device=-1,
-            )
-            MODEL_SUPPORTS_MULTI = False
-            print("[OK] Sentilyze Modeli single-label modda yuklendi.")
-        except Exception as e_single:
-            print(f"[HATA] Model yuklenirken hata olustu: {e_single}")
-            print("Lutfen './SentimentAI_Model' klasorunun main.py ile ayni dizinde oldugu kontrol edin.")
+        print("[OK] Sentilyze Modeli basariyla yuklendi.")
+        print("[INFO] Etiketler: korku / mutluluk / ofke / saskinlik / uzuntu")
+    except Exception as e:
+        print(f"[HATA] Model yuklenirken hata olustu: {e}")
+        print("Lutfen './sentilyze_model' klasorunun main.py ile ayni dizinde oldugu kontrol edin.")
+        print("Beklenen konum: backend/sentilyze_model/")
+
 
     yield  # Uygulama burada çalışır
 
@@ -483,9 +471,12 @@ def health_check():
         "app":              "Sentilyze",
         "version":          "2.0.0",
         "model_loaded":     emotion_pipe is not None,
+        "model_path":       "./sentilyze_model",
+        "model_labels":     ["korku", "mutluluk", "ofke", "saskinlik", "uzuntu"],
         "model_multi_label": MODEL_SUPPORTS_MULTI,
         "max_text_length":  MAX_TEXT_LENGTH,
     }
+
 
 
 @app.get("/", include_in_schema=False)
