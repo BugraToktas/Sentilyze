@@ -1,5 +1,5 @@
 """
-TriSential – YouTube Yorum Çekici Modülü
+Sentilyze — YouTube Yorum Çekici Modülü
 =========================================
 YouTube Data API v3 kullanarak bir video URL'sinden tüm yorumları çeker.
 

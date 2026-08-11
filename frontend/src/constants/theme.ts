@@ -1,6 +1,9 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * theme.ts — Sentilyze Design System
+ *
+ * Renk, tipografi ve ölçü tokenleri.
+ * Artık dinamik emotion sistemi destekleniyor:
+ *   getEmotionMeta(label) → { color, bg, emoji }
  */
 
 import '@/global.css';
@@ -24,18 +27,13 @@ export const Colors = {
   },
 } as const;
 
-// TriSential marka renk paleti
+// ─── Sentilyze marka renk paleti ─────────────────────────────────────────────
 export const Brand = {
   // Ana gradient: mor → mavi
   primary:        '#7C3AED',   // Violet-600
   primaryLight:   '#A78BFA',   // Violet-400
   secondary:      '#2563EB',   // Blue-600
   secondaryLight: '#60A5FA',   // Blue-400
-
-  // Duygu renkleri
-  positive:       '#10B981',   // Emerald-500
-  negative:       '#EF4444',   // Red-500
-  neutral:        '#F59E0B',   // Amber-500
 
   // Auth ekranı arka planı
   authBg:         '#0A0A0F',
@@ -50,15 +48,77 @@ export const Brand = {
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
+// ─── Dinamik Emotion Renk Sistemi ─────────────────────────────────────────────
+// Model hangi etiket döndürürse döndürsün bu tablodan renk/emoji alınır.
+// Türkçe eski etiketler (Olumlu/Olumsuz/Nötr) ve İngilizce yeni etiketler
+// aynı anda desteklenir — karışık model geçişinde sorun yaşanmaz.
+
+interface EmotionMeta {
+  color: string;
+  bg: string;    // rengin şeffaf versiyonu (kart arka planı)
+  emoji: string;
+  label: string; // görüntülenecek Türkçe etiket
+}
+
+const EMOTION_TABLE: Record<string, EmotionMeta> = {
+  // ── Eski 3-sınıflı model (geriye dönük uyumluluk) ──
+  'Olumlu':      { color: '#10B981', bg: 'rgba(16,185,129,0.12)',  emoji: '😊', label: 'Olumlu' },
+  'Olumsuz':     { color: '#EF4444', bg: 'rgba(239,68,68,0.12)',   emoji: '😞', label: 'Olumsuz' },
+  'Nötr':        { color: '#94A3B8', bg: 'rgba(148,163,184,0.12)', emoji: '😐', label: 'Nötr' },
+  'Notr':        { color: '#94A3B8', bg: 'rgba(148,163,184,0.12)', emoji: '😐', label: 'Nötr' }, // ASCII fallback
+
+  // ── Türkçe çok-duygu modeli etiketleri ──
+  'Sevinç':      { color: '#22C55E', bg: 'rgba(34,197,94,0.12)',   emoji: '😄', label: 'Sevinç' },
+  'Mutluluk':    { color: '#22C55E', bg: 'rgba(34,197,94,0.12)',   emoji: '😊', label: 'Mutluluk' },
+  'Üzüntü':      { color: '#3B82F6', bg: 'rgba(59,130,246,0.12)',  emoji: '😢', label: 'Üzüntü' },
+  'Öfke':        { color: '#EF4444', bg: 'rgba(239,68,68,0.12)',   emoji: '😠', label: 'Öfke' },
+  'Korku':       { color: '#F97316', bg: 'rgba(249,115,22,0.12)',  emoji: '😨', label: 'Korku' },
+  'Şaşkınlık':   { color: '#A855F7', bg: 'rgba(168,85,247,0.12)', emoji: '😲', label: 'Şaşkınlık' },
+  'İğrenme':     { color: '#84CC16', bg: 'rgba(132,204,22,0.12)', emoji: '🤢', label: 'İğrenme' },
+  'Sevgi':       { color: '#EC4899', bg: 'rgba(236,72,153,0.12)',  emoji: '🥰', label: 'Sevgi' },
+  'Güven':       { color: '#14B8A6', bg: 'rgba(20,184,166,0.12)', emoji: '🤝', label: 'Güven' },
+  'Beklenti':    { color: '#F59E0B', bg: 'rgba(245,158,11,0.12)', emoji: '🤔', label: 'Beklenti' },
+  'İyimserlik':  { color: '#FBBF24', bg: 'rgba(251,191,36,0.12)', emoji: '🌟', label: 'İyimserlik' },
+  'Kötümserlik': { color: '#6B7280', bg: 'rgba(107,114,128,0.12)',emoji: '😔', label: 'Kötümserlik' },
+  'Sürpriz':     { color: '#A855F7', bg: 'rgba(168,85,247,0.12)', emoji: '🎉', label: 'Sürpriz' },
+  'Hüzün':       { color: '#3B82F6', bg: 'rgba(59,130,246,0.12)', emoji: '😔', label: 'Hüzün' },
+  'Endişe':      { color: '#F97316', bg: 'rgba(249,115,22,0.12)', emoji: '😟', label: 'Endişe' },
+  'Hayranlık':   { color: '#A855F7', bg: 'rgba(168,85,247,0.12)', emoji: '🤩', label: 'Hayranlık' },
+  'Utanç':       { color: '#EC4899', bg: 'rgba(236,72,153,0.12)', emoji: '😳', label: 'Utanç' },
+  'Kıskançlık':  { color: '#84CC16', bg: 'rgba(132,204,22,0.12)', emoji: '😒', label: 'Kıskançlık' },
+  'Gurur':       { color: '#22C55E', bg: 'rgba(34,197,94,0.12)',  emoji: '😤', label: 'Gurur' },
+  'Minnettarlık':{ color: '#14B8A6', bg: 'rgba(20,184,166,0.12)', emoji: '🙏', label: 'Minnettarlık' },
+};
+
+
+/** Fallback: bilinmeyen etiket için nötr stili */
+const FALLBACK_META: EmotionMeta = {
+  color: '#94A3B8',
+  bg: 'rgba(148,163,184,0.12)',
+  emoji: '🔍',
+  label: '—',
+};
+
+/**
+ * Herhangi bir model etiketinden renk, arkaplan ve emoji al.
+ * Büyük/küçük harf duyarsız arama yapar.
+ */
+export function getEmotionMeta(rawLabel: string): EmotionMeta {
+  if (!rawLabel) return FALLBACK_META;
+  const key = rawLabel.trim().toLowerCase();
+  // Önce lowercase anahtarda ara
+  if (EMOTION_TABLE[key]) return EMOTION_TABLE[key];
+  // Orijinal halinde ara (Olumlu gibi büyük harfli Türkçe)
+  if (EMOTION_TABLE[rawLabel.trim()]) return EMOTION_TABLE[rawLabel.trim()];
+  // Bulunamazsa fallback
+  return { ...FALLBACK_META, label: rawLabel };
+}
+
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {

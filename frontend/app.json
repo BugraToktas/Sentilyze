@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
-    "version": "1.0.0",
+    "name": "Sentilyze",
+    "slug": "sentilyze",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "trisential",
+    "scheme": "sentilyze",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"

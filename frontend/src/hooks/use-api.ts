@@ -1,8 +1,11 @@
 /**
- * use-api.ts — TriSential Backend API Hook
+ * use-api.ts — Sentilyze Backend API Hook
  *
  * Backend URL'yi env'den okur; yoksa localhost fallback kullanır.
  * Supabase session token'ını Authorization header'a ekler.
+ *
+ * v2: Artık sabit 3 sınıf yerine dinamik emotion etiket sistemi kullanılır.
+ * Model hangi etiket döndürürse döndürsün tip güvenliyle çalışır.
  */
 
 import { useCallback } from 'react';
@@ -11,51 +14,74 @@ import { useAuth } from '@/hooks/use-auth';
 const BASE_URL =
     (process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
 
-// ---- Tip tanımları -----------------------------------------------------------
+// ─── Tip tanımları ─────────────────────────────────────────────────────────────
 
+/** Modelin döndürdüğü herhangi bir duygu etiketi (string — model bağımsız) */
+export type EmotionLabel = string;
+
+/** Tek metin analiz sonucu */
 export interface SingleAnalysisResult {
-    label: 'Olumlu' | 'Olumsuz' | 'Nötr';
+    /** Modelin belirlediği baskın duygu etiketi */
+    label: EmotionLabel;
+    /** Baskın etiketin güven skoru (0–100) */
     confidence: number;
     process_time_ms: number;
     text: string;
+    /**
+     * Opsiyonel: Çok-sınıflı model ise tüm duygu skorları
+     * { "joy": 72.5, "sadness": 12.3, "anger": 8.1, ... }
+     */
+    scores?: Record<EmotionLabel, number>;
 }
 
+/** Toplu analiz tek satır sonucu */
 export interface BatchItem {
     text: string;
-    label: 'Olumlu' | 'Olumsuz' | 'Nötr';
+    label: EmotionLabel;
     confidence: number;
+    scores?: Record<EmotionLabel, number>;
 }
 
+/** YouTube yorumu analiz sonucu */
 export interface YoutubeComment {
     text: string;
     author: string;
     like_count: number;
     published_at: string;
-    label: 'Olumlu' | 'Olumsuz' | 'Nötr';
+    label: EmotionLabel;
     confidence: number;
+    scores?: Record<EmotionLabel, number>;
 }
 
-export interface SentimentBreakdown {
+/** Duygu dağılım istatistiği (herhangi bir etiket için) */
+export interface EmotionBreakdown {
     count: number;
     percentage: number;
 }
 
+/** YouTube analiz sonucu (v2 — dinamik breakdown) */
 export interface YoutubeAnalysisResult {
     video_info: {
         title: string;
-        channel_title: string;
+        channel_title?: string;
+        channel?: string;
         view_count: string;
         video_id: string;
+        comment_count?: number;
+        like_count?: number;
     };
     summary: {
         total_fetched: number;
         total_analyzed: number;
         skipped: number;
-        breakdown: {
-            Olumlu: SentimentBreakdown;
-            Olumsuz: SentimentBreakdown;
-            Nötr: SentimentBreakdown;
-        };
+        /**
+         * Dinamik breakdown: model hangi etiket döndürürse o burada olur.
+         * Örn: { "joy": {...}, "anger": {...} }
+         *   veya (eski model): { "Olumlu": {...}, "Olumsuz": {...}, "Nötr": {...} }
+         */
+        breakdown: Record<EmotionLabel, EmotionBreakdown>;
+        /** Tüm analizlerin ağırlıklı ortalaması (opsiyonel) */
+        avg_scores?: Record<EmotionLabel, number>;
     };
     performance: {
         fetch_time_ms: number;
@@ -65,7 +91,7 @@ export interface YoutubeAnalysisResult {
     data: YoutubeComment[];
 }
 
-// ---- Hook -------------------------------------------------------------------
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useApi() {
     const { session } = useAuth();

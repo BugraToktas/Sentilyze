@@ -1,16 +1,15 @@
 -- =============================================================================
--- TriSential — Supabase Veritabanı Şeması
+-- Sentilyze — Supabase Veritabanı Şeması
 -- =============================================================================
 -- Mimari:
 --   analysis_jobs  → Her analiz oturumunu temsil eder
 --                    (1 YouTube URL, 1 manuel metin, N batch metin)
 --   analysis_items → Bir job içindeki her bireysel metnin sonucu
 --
--- Neden 2 tablo?
---   - YouTube: 1 video URL'si → yüzlerce yorum → 1 job, N item
---   - Gemini AI Summary: job seviyesinde saklanır (tüm yorumların özeti)
---   - Geçmiş görünümü temiz kalır: job bazlı listeleme
---   - İleride Google Maps, Trendyol gibi kaynaklar eklemek kolay
+-- v2: Dinamik duygu sistemi
+--   - sentiment_label CHECK kısıtlaması kaldırıldı (model bağımsız)
+--   - emotions_summary JSONB eklendi (herhangi sayıda duygu)
+--   - Geriye dönük uyumluluk: positive/negative/neutral_count korunuyor
 -- =============================================================================
 
 
@@ -77,15 +76,19 @@ CREATE TABLE IF NOT EXISTS analysis_jobs (
     youtube_view_count   BIGINT,
 
     -- İleride: E-ticaret/Google Maps özgü metadata
-    source_url    TEXT,       -- Ürün/mekan URL'si
-    source_name   TEXT,       -- Ürün/mekan adı
+    source_url    TEXT,
+    source_name   TEXT,
 
-    -- Aggregate sonuçlar (hızlı okuma için denormalize)
+    -- Aggregate sonuçlar (geriye dönük uyumluluk için eski sütunlar korunuyor)
     total_analyzed  INT DEFAULT 0,
     total_skipped   INT DEFAULT 0,
     positive_count  INT DEFAULT 0,
     negative_count  INT DEFAULT 0,
     neutral_count   INT DEFAULT 0,
+
+    -- v2: Dinamik duygu özeti (JSONB — herhangi sayıda duygu)
+    -- Örn: {"joy": 45, "sadness": 12, "anger": 8} veya {"Olumlu": 50, "Olumsuz": 30, "Nötr": 20}
+    emotions_summary JSONB,
 
     -- Performans
     fetch_time_ms   DECIMAL(10,2),
@@ -95,7 +98,7 @@ CREATE TABLE IF NOT EXISTS analysis_jobs (
     -- Gemini AI Özeti (pipeline'ın son adımı)
     ai_summary              TEXT,
     ai_summary_generated_at TIMESTAMPTZ,
-    ai_summary_model        VARCHAR(50),  -- hangi Gemini modeli kullanıldı
+    ai_summary_model        VARCHAR(50),
 
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -120,17 +123,21 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status
 CREATE TABLE IF NOT EXISTS analysis_items (
     id      UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     job_id  UUID REFERENCES analysis_jobs(id) ON DELETE CASCADE NOT NULL,
-    user_id UUID REFERENCES auth.users(id)    ON DELETE CASCADE NOT NULL,  -- RLS için
+    user_id UUID REFERENCES auth.users(id)    ON DELETE CASCADE NOT NULL,
 
     -- Analiz edilen metin
     analyzed_text TEXT NOT NULL,
 
     -- Duygu analizi sonucu
-    sentiment_label  VARCHAR(20) NOT NULL
-                     CHECK (sentiment_label IN ('Olumlu', 'Olumsuz', 'Nötr', 'Notr')),
+    -- CHECK kısıtlaması kaldırıldı: yeni model herhangi bir etiket döndürebilir
+    sentiment_label  TEXT NOT NULL,        -- Örn: "joy", "anger", "Olumlu", vb.
     confidence_score DECIMAL(5,2) NOT NULL
                      CHECK (confidence_score >= 0 AND confidence_score <= 100),
     process_time_ms  DECIMAL(8,2),
+
+    -- Tüm duygu skorları (JSONB — multi-label model desteği)
+    -- Örn: {"joy": 72.5, "sadness": 15.3, "anger": 8.1, ...}
+    emotion_scores   JSONB,
 
     -- Manuel/Batch analizde kaynak kategorisi
     source_category VARCHAR(20)
@@ -234,3 +241,32 @@ FROM analysis_jobs j
 WHERE j.created_at >= NOW() - INTERVAL '30 days'
   AND j.status = 'completed'
 GROUP BY j.user_id;
+
+
+-- =============================================================================
+-- 6. MIGRATION: Mevcut veritabanına yeni sütunları ekle (zaten varsa hata vermez)
+-- =============================================================================
+-- Bu blok, mevcut Supabase'e yeni sütunları eklemek için çalıştırılır.
+-- Yeni kurulumda yukarıdaki CREATE TABLE zaten kapsar, bu satırlar yedekdir.
+
+ALTER TABLE analysis_jobs
+    ADD COLUMN IF NOT EXISTS emotions_summary JSONB;
+
+ALTER TABLE analysis_items
+    ADD COLUMN IF NOT EXISTS emotion_scores JSONB;
+
+-- sentiment_label üzerindeki eski CHECK kısıtlamasını kaldır (varsa)
+DO $$
+DECLARE
+    v_constraint TEXT;
+BEGIN
+    SELECT conname INTO v_constraint
+    FROM pg_constraint
+    WHERE conrelid = 'analysis_items'::regclass
+      AND contype = 'c'
+      AND conname LIKE '%sentiment_label%';
+    IF v_constraint IS NOT NULL THEN
+        EXECUTE 'ALTER TABLE analysis_items DROP CONSTRAINT ' || v_constraint;
+    END IF;
+END;
+$$;

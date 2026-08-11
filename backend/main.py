@@ -1,61 +1,93 @@
+"""
+Sentilyze API — v2
+==================
+Çok boyutlu duygu analizi için hazırlanmış, model-bağımsız FastAPI backend.
+
+Modelden gelen her etiket doğrudan iletilir; artık Olumlu/Olumsuz/Nötr'e
+sabit bağımlılık yoktur. Yeni model eklendiğinde sadece ./SentimentAI_Model
+klasörü değiştirilir, API kodu değişmez.
+
+Desteklenen model türleri:
+  - single-label: pipeline, {"label": "joy", "score": 0.92}
+  - multi-label:  pipeline(top_k=None) → [{"label":"joy","score":0.7}, ...]
+"""
+
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from transformers import pipeline
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import time
 import os
 from dotenv import load_dotenv
 
 from youtube_fetcher import fetch_comments_from_url, extract_video_id
 
-# .env dosyasını yükle (varsa)
 load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Global model değişkeni
 # ---------------------------------------------------------------------------
-sentiment_pipe = None
-MAX_TEXT_LENGTH = 512  # Modelin kaldırabileceği maksimum karakter sayısı
+emotion_pipe = None
+MAX_TEXT_LENGTH = 512   # Modelin kaldırabileceği maksimum karakter sayısı
+
+# Modelin multi-label destekleyip desteklemediğini başlatmada belirle
+MODEL_SUPPORTS_MULTI = False
+
 
 # ---------------------------------------------------------------------------
-# 1. Lifespan – Sunucu açılıp kapanırken çalışacak kod (modern yöntem)
+# 1. Lifespan — Sunucu açılıp kapanırken çalışacak kod
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup ve shutdown olaylarını yönetir."""
-    global sentiment_pipe
+    global emotion_pipe, MODEL_SUPPORTS_MULTI
 
     # --- STARTUP ---
-    print("[BASLATILIYOR] TriSential Yapay Zeka Modeli RAM'e yukleniyor...")
+    print("[BASLATILIYOR] Sentilyze Duygu Modeli RAM'e yukleniyor...")
     try:
-        # device=-1 → CPU. Nvidia GPU varsa device=0 yap.
-        sentiment_pipe = pipeline(
+        # top_k=None → tüm sınıfların skorlarını döndürür (multi-label)
+        # Eski 3-sınıflı model de bu şekilde yüklenir, sonuç 3 eleman olur.
+        emotion_pipe = pipeline(
             "text-classification",
             model="./SentimentAI_Model",
             tokenizer="./SentimentAI_Model",
             device=-1,
+            top_k=None,  # tüm sınıf skorları isteniyor
         )
-        print("[OK] TriSential Modeli basariyla yuklendi ve hazir!")
-    except Exception as e:
-        print(f"[HATA] Model yuklenirken hata olustu: {e}")
-        print("Lutfen './SentimentAI_Model' klasorunun main.py ile ayni dizinde oldugu kontrol edin.")
+        MODEL_SUPPORTS_MULTI = True
+        print("[OK] Sentilyze Modeli basariyla yuklendi (multi-label modu).")
+    except Exception as e_multi:
+        print(f"[UYARI] Multi-label modu hatasi: {e_multi}")
+        print("[DENENIYOR] Single-label (eski) mod deneniyor...")
+        try:
+            emotion_pipe = pipeline(
+                "text-classification",
+                model="./SentimentAI_Model",
+                tokenizer="./SentimentAI_Model",
+                device=-1,
+            )
+            MODEL_SUPPORTS_MULTI = False
+            print("[OK] Sentilyze Modeli single-label modda yuklendi.")
+        except Exception as e_single:
+            print(f"[HATA] Model yuklenirken hata olustu: {e_single}")
+            print("Lutfen './SentimentAI_Model' klasorunun main.py ile ayni dizinde oldugu kontrol edin.")
 
     yield  # Uygulama burada çalışır
 
     # --- SHUTDOWN ---
-    print("[KAPATILIYOR] TriSential API kapatiliyor...")
-    sentiment_pipe = None
+    print("[KAPATILIYOR] Sentilyze API kapatiliyor...")
+    emotion_pipe = None
 
 
 # ---------------------------------------------------------------------------
 # 2. FastAPI Uygulaması
 # ---------------------------------------------------------------------------
 app = FastAPI(
-    title="TriSential API",
-    description="E-Ticaret ve Mekan Yorumları İçin Gelişmiş Türkçe Duygu Analizi Modeli",
-    version="1.0.0",
+    title="Sentilyze API",
+    description="Çok Boyutlu Duygu Analizi Platformu — Model Bağımsız",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -64,7 +96,7 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ Prod ortamında bunu frontend URL'iyle değiştir!
+    allow_origins=["*"],  # ⚠️ Prod ortamında frontend URL'iyle değiştir!
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -77,15 +109,16 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     text: str
 
+
 class BatchAnalyzeRequest(BaseModel):
     texts: List[str]
 
 
 class YouTubeFetchRequest(BaseModel):
     url: str
-    max_comments: int = 500        # Çekilecek maksimum yorum sayısı (kota koruması)
-    order: str = "relevance"       # "relevance" | "time"
-    include_replies: bool = False  # Alt cevapları da dahil et
+    max_comments: int = 500
+    order: str = "relevance"
+    include_replies: bool = False
 
 
 class YouTubeFetchAndAnalyzeRequest(BaseModel):
@@ -96,15 +129,16 @@ class YouTubeFetchAndAnalyzeRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 5. Yardımcı Fonksiyon – Model null ve metin kontrolü
+# 5. Yardımcı Fonksiyonlar
 # ---------------------------------------------------------------------------
 def _check_model():
     """Model yüklü değilse 503 hatası fırlat."""
-    if sentiment_pipe is None:
+    if emotion_pipe is None:
         raise HTTPException(
             status_code=503,
             detail="Model henüz yüklenmedi veya yüklenirken hata oluştu. Sunucu loglarını kontrol edin.",
         )
+
 
 def _check_text(text: str):
     """Boş veya çok uzun metni reddet."""
@@ -117,88 +151,60 @@ def _check_text(text: str):
         )
 
 
-# ---------------------------------------------------------------------------
-# 6. Endpoint – Tekil Analiz
-# ---------------------------------------------------------------------------
-@app.post("/api/v1/analyze", summary="Tek metin duygu analizi")
-def analyze_sentiment(request: AnalyzeRequest):
+def _parse_model_output(raw_output) -> Dict[str, Any]:
     """
-    Verilen tek bir metni analiz eder ve duygu etiketini (Olumlu / Olumsuz / Nötr)
-    güven skoru ile birlikte döndürür.
+    Model çıktısını normalize eder.
+
+    Desteklenen çıktı formatları:
+      - Single-label: {"label": "joy", "score": 0.92}
+      - Multi-label:  [{"label":"joy","score":0.7}, {"label":"sadness","score":0.2}, ...]
+
+    Dönen dict:
+      {
+        "label": str,               # Baskın duygu etiketi
+        "confidence": float,        # Baskın etiketin yüzde skoru (0–100)
+        "scores": {label: pct, ...} # Tüm sınıfların yüzde skorları
+      }
     """
-    _check_model()
-    _check_text(request.text)
-
-    start_time = time.time()
-
-    try:
-        result = sentiment_pipe(request.text)[0]
-        process_time = round((time.time() - start_time) * 1000, 2)
-
-        return {
-            "status": "success",
-            "data": {
-                "text": request.text,
-                "label": result["label"],       # Olumlu, Olumsuz veya Nötr
-                "confidence": round(result["score"] * 100, 2),
-                "process_time_ms": process_time,
-            },
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ---------------------------------------------------------------------------
-# 7. Endpoint – Toplu (Batch) Analiz
-# ---------------------------------------------------------------------------
-@app.post("/api/v1/analyze/batch", summary="Çoklu metin duygu analizi")
-def analyze_sentiment_batch(request: BatchAnalyzeRequest):
-    """
-    Birden fazla metni tek seferde analiz eder.
-    Maksimum 50 metin gönderilebilir.
-    """
-    _check_model()
-
-    if not request.texts:
-        raise HTTPException(status_code=400, detail="Metin listesi boş olamaz.")
-    if len(request.texts) > 50:
-        raise HTTPException(status_code=400, detail="Tek seferde en fazla 50 metin gönderilebilir.")
-
-    # Her metni doğrula
-    for i, text in enumerate(request.texts):
-        try:
-            _check_text(text)
-        except HTTPException as e:
-            raise HTTPException(status_code=400, detail=f"[{i}. metin] {e.detail}")
-
-    start_time = time.time()
-
-    try:
-        results = sentiment_pipe(request.texts)
-        process_time = round((time.time() - start_time) * 1000, 2)
-
-        analyzed = [
-            {
-                "text": text,
-                "label": res["label"],
-                "confidence": round(res["score"] * 100, 2),
+    if isinstance(raw_output, list) and len(raw_output) > 0:
+        # multi-label: liste olarak gelir
+        if isinstance(raw_output[0], dict) and "label" in raw_output[0]:
+            # En yüksek skorluyu baskın olarak seç
+            sorted_items = sorted(raw_output, key=lambda x: x["score"], reverse=True)
+            dominant = sorted_items[0]
+            scores = {
+                item["label"]: round(item["score"] * 100, 2)
+                for item in sorted_items
             }
-            for text, res in zip(request.texts, results)
-        ]
+            return {
+                "label": dominant["label"],
+                "confidence": round(dominant["score"] * 100, 2),
+                "scores": scores,
+            }
+        # pipeline bazen [[{...}]] şeklinde iç içe liste döndürür
+        if isinstance(raw_output[0], list):
+            return _parse_model_output(raw_output[0])
 
+    if isinstance(raw_output, dict) and "label" in raw_output:
+        # single-label
         return {
-            "status": "success",
-            "count": len(analyzed),
-            "process_time_ms": process_time,
-            "data": analyzed,
+            "label": raw_output["label"],
+            "confidence": round(raw_output["score"] * 100, 2),
+            "scores": {raw_output["label"]: round(raw_output["score"] * 100, 2)},
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+    # Tanımsız format
+    raise ValueError(f"Model çıktısı beklenmeyen formatta: {type(raw_output)}")
 
 
-# ---------------------------------------------------------------------------
-# 8. Endpoint – YouTube Yorum Çekici
-# ---------------------------------------------------------------------------
+def _analyze_text(text: str) -> Dict[str, Any]:
+    """Tek metni analiz eder, normalize edilmiş dict döndürür."""
+    raw = emotion_pipe(text)
+    # pipeline bazen tek eleman için [[{...}]] veya [{...}] döndürür
+    if isinstance(raw, list) and len(raw) == 1:
+        return _parse_model_output(raw[0])
+    return _parse_model_output(raw)
+
 
 def _get_youtube_api_key() -> str:
     """YOUTUBE_API_KEY ortam değişkenini döndürür, yoksa 503 fırlatır."""
@@ -215,28 +221,103 @@ def _get_youtube_api_key() -> str:
     return key
 
 
+# ---------------------------------------------------------------------------
+# 6. Endpoint — Tekil Analiz
+# ---------------------------------------------------------------------------
+@app.post("/api/v1/analyze", summary="Tek metin duygu analizi")
+def analyze_sentiment(request: AnalyzeRequest):
+    """
+    Verilen tek bir metni analiz eder.
+
+    Dönen `label` modelin belirlediği baskın duygu etiketidir (model bağımsız).
+    `scores` sözlüğünde tüm duyguların yüzde skorları yer alır.
+    """
+    _check_model()
+    _check_text(request.text)
+
+    start_time = time.time()
+
+    try:
+        result = _analyze_text(request.text)
+        process_time = round((time.time() - start_time) * 1000, 2)
+
+        return {
+            "status": "success",
+            "data": {
+                "text":            request.text,
+                "label":           result["label"],
+                "confidence":      result["confidence"],
+                "scores":          result.get("scores", {}),
+                "process_time_ms": process_time,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# 7. Endpoint — Toplu (Batch) Analiz
+# ---------------------------------------------------------------------------
+@app.post("/api/v1/analyze/batch", summary="Çoklu metin duygu analizi")
+def analyze_sentiment_batch(request: BatchAnalyzeRequest):
+    """
+    Birden fazla metni tek seferde analiz eder.
+    Maksimum 50 metin gönderilebilir.
+
+    Her sonuçta `label`, `confidence` ve `scores` döner.
+    """
+    _check_model()
+
+    if not request.texts:
+        raise HTTPException(status_code=400, detail="Metin listesi boş olamaz.")
+    if len(request.texts) > 50:
+        raise HTTPException(status_code=400, detail="Tek seferde en fazla 50 metin gönderilebilir.")
+
+    for i, text in enumerate(request.texts):
+        try:
+            _check_text(text)
+        except HTTPException as e:
+            raise HTTPException(status_code=400, detail=f"[{i}. metin] {e.detail}")
+
+    start_time = time.time()
+
+    try:
+        analyzed = []
+        for text in request.texts:
+            result = _analyze_text(text)
+            analyzed.append({
+                "text":       text,
+                "label":      result["label"],
+                "confidence": result["confidence"],
+                "scores":     result.get("scores", {}),
+            })
+
+        process_time = round((time.time() - start_time) * 1000, 2)
+
+        return {
+            "status":          "success",
+            "count":           len(analyzed),
+            "process_time_ms": process_time,
+            "data":            analyzed,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# 8. Endpoint — YouTube Yorum Çekici (analiz yok)
+# ---------------------------------------------------------------------------
 @app.post("/api/v1/fetch/youtube", summary="YouTube videosundan yorum çek")
 def fetch_youtube_comments(request: YouTubeFetchRequest):
     """
-    Verilen YouTube video URL'sinden yorumları çeker.
-
-    Desteklenen URL formatları:
-    - https://www.youtube.com/watch?v=VIDEO_ID
-    - https://youtu.be/VIDEO_ID
-    - https://www.youtube.com/shorts/VIDEO_ID
-
-    max_comments: Çekilecek maksimum yorum sayısı (varsayılan 500).
-    order: "relevance" (öne çıkan) veya "time" (en yeni).
-    include_replies: Alt cevapları da dahil et (varsayılan False).
+    Verilen YouTube video URL'sinden yorumları çeker (analiz yapmaz).
     """
     api_key = _get_youtube_api_key()
 
     if not request.url or not request.url.strip():
         raise HTTPException(status_code=400, detail="Lütfen geçerli bir YouTube URL'si girin.")
-
     if request.order not in ("relevance", "time"):
         raise HTTPException(status_code=400, detail="order değeri 'relevance' veya 'time' olmalıdır.")
-
     if not (1 <= request.max_comments <= 2000):
         raise HTTPException(status_code=400, detail="max_comments 1 ile 2000 arasında olmalıdır.")
 
@@ -253,11 +334,11 @@ def fetch_youtube_comments(request: YouTubeFetchRequest):
         process_time = round((time.time() - start_time) * 1000, 2)
 
         return {
-            "status": "success",
+            "status":         "success",
             "process_time_ms": process_time,
-            "video_info": result["video_info"],
-            "fetched_count": len(result["comments"]),
-            "comments": result["comments"],
+            "video_info":     result["video_info"],
+            "fetched_count":  len(result["comments"]),
+            "comments":       result["comments"],
         }
 
     except ValueError as e:
@@ -268,26 +349,27 @@ def fetch_youtube_comments(request: YouTubeFetchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ---------------------------------------------------------------------------
+# 9. Endpoint — YouTube Yorum Çek + Analiz Et
+# ---------------------------------------------------------------------------
 @app.post("/api/v1/fetch-and-analyze/youtube", summary="YouTube yorumlarını çek ve analiz et")
 def fetch_and_analyze_youtube(request: YouTubeFetchAndAnalyzeRequest):
     """
-    YouTube videosundan yorumları çeker ve doğrudan duygu analizi yapar.
-    Tek adımda hem yorum çekme hem de TriSential analizi gerçekleştirir.
+    YouTube videosundan yorumları çeker ve duygu analizini yapar.
 
-    Dönüş değerinde:
-    - video_info: Video meta bilgileri
-    - summary: Genel istatistik (Olumlu/Olumsuz/Nötr dağılımı ve yüzdeleri)
-    - data: Her yorumun analiz sonucu
+    Dönen `summary.breakdown` sözlüğü dinamiktir:
+      - Eski 3-sınıflı model: { "Olumlu": {...}, "Olumsuz": {...}, "Nötr": {...} }
+      - Yeni çok-duygu modeli: { "joy": {...}, "sadness": {...}, "anger": {...}, ... }
+
+    Bu sayede frontend yeni modele geçildiğinde otomatik uyum sağlar.
     """
     _check_model()
     api_key = _get_youtube_api_key()
 
     if not request.url or not request.url.strip():
         raise HTTPException(status_code=400, detail="Lütfen geçerli bir YouTube URL'si girin.")
-
     if request.order not in ("relevance", "time"):
         raise HTTPException(status_code=400, detail="order değeri 'relevance' veya 'time' olmalıdır.")
-
     if not (1 <= request.max_comments <= 2000):
         raise HTTPException(status_code=400, detail="max_comments 1 ile 2000 arasında olmalıdır.")
 
@@ -315,62 +397,64 @@ def fetch_and_analyze_youtube(request: YouTubeFetchAndAnalyzeRequest):
     if not texts:
         raise HTTPException(
             status_code=404,
-            detail="Bu videoda analiz edilecek yorum bulunamadı (yorumlar kapalı olabilir)."
+            detail="Bu videoda analiz edilecek yorum bulunamadı (yorumlar kapalı olabilir).",
         )
 
-    # 2) Sentiment analizini MAX_TEXT_LENGTH'e uyan metinlere uygula
+    # 2) Duygu analizini uygula
     fetch_time = round((time.time() - start_time) * 1000, 2)
     analyze_start = time.time()
 
     analyzed = []
     skipped = 0
+    label_counts: Dict[str, int] = {}      # { "joy": 12, "sadness": 5, ... }
+    label_score_sums: Dict[str, float] = {} # Ortalama hesabı için
+
     for meta, text in zip(comments_meta, texts):
         if len(text) > MAX_TEXT_LENGTH:
             skipped += 1
             continue
         try:
-            result = sentiment_pipe(text)[0]
+            result = _analyze_text(text)
+            dominant = result["label"]
+
+            # Sayaçları güncelle
+            label_counts[dominant] = label_counts.get(dominant, 0) + 1
+
+            # Tüm skorları topla (ortalama için)
+            for lbl, score in result.get("scores", {dominant: result["confidence"]}).items():
+                label_score_sums[lbl] = label_score_sums.get(lbl, 0.0) + score
+
             analyzed.append({
                 "text":         text,
                 "author":       meta.get("author", ""),
                 "like_count":   meta.get("like_count", 0),
                 "published_at": meta.get("published_at", ""),
-                "label":        result["label"],
-                "confidence":   round(result["score"] * 100, 2),
+                "label":        dominant,
+                "confidence":   result["confidence"],
+                "scores":       result.get("scores", {}),
             })
         except Exception:
             skipped += 1
 
     analyze_time = round((time.time() - analyze_start) * 1000, 2)
 
-    # 3) Özet istatistik hesapla
-    # Model bazı durumlarda "Notr" (ASCII), bazı durumlarda "Nötr" döndürebilir.
-    # Normalize ediyoruz: her ikisi de "Nötr" olarak sayılır.
-    LABEL_MAP = {
-        "Olumlu": "Olumlu",
-        "Olumsuz": "Olumsuz",
-        "Nötr": "Nötr",
-        "Notr": "Nötr",   # ASCII fallback
-    }
-
+    # 3) Özet istatistik — dinamik breakdown (herhangi etiket)
     total = len(analyzed)
-    counts = {"Olumlu": 0, "Olumsuz": 0, "Nötr": 0}
-    for item in analyzed:
-        raw_label = item["label"]
-        normalized = LABEL_MAP.get(raw_label, raw_label)
-        item["label"] = normalized   # response'da da normalize et
-        if normalized in counts:
-            counts[normalized] += 1
-
-    breakdown = {}
-    for label, count in counts.items():
+    breakdown: Dict[str, Dict] = {}
+    for label, count in sorted(label_counts.items(), key=lambda x: -x[1]):
         breakdown[label] = {
-            "count": count,
+            "count":      count,
             "percentage": round((count / total * 100), 1) if total > 0 else 0.0,
         }
 
+    # Ağırlıklı ortalama skorlar
+    avg_scores: Dict[str, float] = {}
+    if total > 0:
+        for lbl, total_score in label_score_sums.items():
+            avg_scores[lbl] = round(total_score / total, 2)
+
     return {
-        "status": "success",
+        "status":     "success",
         "video_info": yt_result["video_info"],
         "performance": {
             "fetch_time_ms":   fetch_time,
@@ -378,28 +462,32 @@ def fetch_and_analyze_youtube(request: YouTubeFetchAndAnalyzeRequest):
             "total_time_ms":   round(fetch_time + analyze_time, 2),
         },
         "summary": {
-            "total_fetched":   len(texts),
-            "total_analyzed":  total,
-            "skipped":         skipped,
-            "breakdown":       breakdown,
+            "total_fetched":  len(texts),
+            "total_analyzed": total,
+            "skipped":        skipped,
+            "breakdown":      breakdown,   # Dinamik — model bağımsız
+            "avg_scores":     avg_scores,  # Tüm duyguların ortalama yoğunluğu
         },
         "data": analyzed,
     }
 
 
 # ---------------------------------------------------------------------------
-# 9. Endpoint – Sağlık Kontrolü
+# 10. Endpoint — Sağlık Kontrolü
 # ---------------------------------------------------------------------------
 @app.get("/health", summary="Sunucu ve model durumu")
 def health_check():
     """API ve modelin çalışıp çalışmadığını kontrol eder."""
     return {
-        "status": "ok",
-        "model_loaded": sentiment_pipe is not None,
-        "max_text_length": MAX_TEXT_LENGTH,
-        "version": "1.0.0",
+        "status":           "ok",
+        "app":              "Sentilyze",
+        "version":          "2.0.0",
+        "model_loaded":     emotion_pipe is not None,
+        "model_multi_label": MODEL_SUPPORTS_MULTI,
+        "max_text_length":  MAX_TEXT_LENGTH,
     }
+
 
 @app.get("/", include_in_schema=False)
 def root():
-    return {"message": "TriSential API is running! Dokümantasyon için /docs adresine gidin."}
+    return {"message": "Sentilyze API is running! Dokümantasyon için /docs adresine gidin."}

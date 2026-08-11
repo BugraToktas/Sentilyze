@@ -1,11 +1,22 @@
 // =============================================================================
-// TriSential — Supabase Veritabanı TypeScript Tipleri
+// Sentilyze — Supabase Veritabanı TypeScript Tipleri
 // Bu dosya createClient<Database> için gerekli — diğer her şeye buradan import et.
+// v2: SentimentLabel artık açık string (model bağımsız), emotions_summary JSONB eklendi.
 // =============================================================================
 
 export type JobType      = 'manual' | 'batch' | 'youtube' | 'ecommerce' | 'gmaps';
 export type JobStatus    = 'pending' | 'processing' | 'completed' | 'failed';
-export type SentimentLabel = 'Olumlu' | 'Olumsuz' | 'Nötr' | 'Notr';
+
+/**
+ * v2: Duygu etiketi artık sabit 3 değere bağlı değil.
+ * Model hangi etiket döndürürse döndürsün string olarak saklanır.
+ * Örnekler: "joy", "anger", "Olumlu", "Olumsuz", "Nötr", "sadness" ...
+ */
+export type EmotionLabel = string;
+
+/** Geriye dönük uyumluluk için — eski kayıtlar hâlâ bu tipi kullanıyor */
+export type SentimentLabel = EmotionLabel;
+
 export type SourceCategory = 'ecommerce' | 'location' | 'other';
 
 // ---------------------------------------------------------------------------
@@ -38,7 +49,10 @@ export interface AnalysisJob {
     source_url:  string | null;
     source_name: string | null;
 
-    // Aggregate sonuçlar
+    // v2: Dinamik duygu özeti — {"joy": 45, "sadness": 12} vb.
+    emotions_summary: Record<EmotionLabel, number> | null;
+
+    // Geriye dönük uyumluluk (eski kayıtlar için)
     total_analyzed: number;
     total_skipped:  number;
     positive_count: number;
@@ -64,9 +78,13 @@ export interface AnalysisItem {
     user_id: string;
 
     analyzed_text:    string;
-    sentiment_label:  SentimentLabel;
+    sentiment_label:  EmotionLabel;   // artık serbest string
     confidence_score: number;
     process_time_ms:  number | null;
+
+    // v2: Multi-label model skorları — {"joy": 72.5, "sadness": 15.3, ...}
+    emotion_scores: Record<EmotionLabel, number> | null;
+
     source_category:  SourceCategory | null;
 
     // YouTube yorum metadata
@@ -128,6 +146,10 @@ export interface Database {
                     source_url?:  string | null;
                     source_name?: string | null;
 
+                    // v2: dinamik duygu özeti
+                    emotions_summary?: Record<EmotionLabel, number> | null;
+
+                    // Geriye dönük uyumluluk
                     total_analyzed?: number;
                     total_skipped?:  number;
                     positive_count?: number;
@@ -154,9 +176,13 @@ export interface Database {
                     user_id:  string;
 
                     analyzed_text:    string;
-                    sentiment_label:  SentimentLabel;
+                    sentiment_label:  EmotionLabel;   // serbest string
                     confidence_score: number;
                     process_time_ms?: number | null;
+
+                    // v2: tüm duygu skorları
+                    emotion_scores?: Record<EmotionLabel, number> | null;
+
                     source_category?: SourceCategory | null;
 
                     youtube_author?:       string | null;

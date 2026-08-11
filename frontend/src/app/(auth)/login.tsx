@@ -85,8 +85,8 @@ export default function LoginScreen() {
                         >
                             <Text style={styles.logoIcon}>✦</Text>
                         </LinearGradient>
-                        <Text style={styles.appName}>TriSential</Text>
-                        <Text style={styles.tagline}>Türkçe Duygu Analizi</Text>
+                        <Text style={styles.appName}>Sentilyze</Text>
+                        <Text style={styles.tagline}>Duygu Analitiği Platformu</Text>
                     </View>
 
                     {/* Kart */}

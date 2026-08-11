@@ -1,11 +1,15 @@
 /**
- * dashboard.tsx — TriSential Ana Ekranı
+ * dashboard.tsx — Sentilyze Ana Ekranı
  *
  * 4 sekme:
  *   1. Analiz   → Manuel metin & toplu analiz
  *   2. YouTube  → YouTube URL analizi
  *   3. Geçmiş   → Supabase'den past analysis_jobs
  *   4. Profil   → Kullanıcı bilgisi + çıkış
+ *
+ * v2: Artık sabit Olumlu/Olumsuz/Nötr yerine dinamik emotion sistemi
+ *     kullanılıyor. getEmotionMeta() ile herhangi bir model etiketi
+ *     otomatik olarak renk/emoji/Türkçe label'a çevrilir.
  */
 
 import { useState, useCallback } from 'react';
@@ -25,42 +29,11 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/use-auth';
 import { useApi, type SingleAnalysisResult, type YoutubeAnalysisResult } from '@/hooks/use-api';
-import { Brand } from '@/constants/theme';
+import { Brand, getEmotionMeta } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-
-// ─── Renk / Etiket yardımcıları ────────────────────────────────────────────
-type SentLabel = 'Olumlu' | 'Olumsuz' | 'Nötr';
-
-/**
- * Backend bazen ASCII 'Notr', bazen Türkçe 'Nötr' döndürür.
- * Bu fonksiyon her ikisini de güvenli biçimde normalize eder.
- */
-function normalizeLabel(raw: string): SentLabel {
-    if (raw === 'Notr') return 'Nötr';
-    if (raw === 'Olumlu' || raw === 'Olumsuz' || raw === 'Nötr') return raw;
-    return 'Nötr'; // bilinmeyen → nötr kabul et
-}
-
-const LABEL_COLOR: Record<SentLabel, string> = {
-    Olumlu: Brand.positive,
-    Olumsuz: Brand.negative,
-    Nötr:   Brand.neutral,
-};
-
-const LABEL_BG: Record<SentLabel, string> = {
-    Olumlu: 'rgba(16,185,129,0.12)',
-    Olumsuz: 'rgba(239,68,68,0.12)',
-    Nötr:   'rgba(245,158,11,0.12)',
-};
-
-const LABEL_EMOJI: Record<SentLabel, string> = {
-    Olumlu: '😊',
-    Olumsuz: '😞',
-    Nötr:   '😐',
-};
 
 // ─── Alt Sekme Tipi ─────────────────────────────────────────────────────────
 type Tab = 'analyze' | 'youtube' | 'history' | 'profile';
@@ -71,6 +44,8 @@ interface HistoryJob {
     job_type: string;
     youtube_video_title: string | null;
     total_analyzed: number;
+    emotions_summary: Record<string, number> | null;
+    // Geriye dönük uyumluluk (eski kayıtlar için)
     positive_count: number;
     negative_count: number;
     neutral_count: number;
@@ -79,13 +54,8 @@ interface HistoryJob {
 
 // ─── Circular Progress ─────────────────────────────────────────────────────
 function CircleProgress({ value, color, label }: { value: number; color: string; label: string }) {
-    const radius = 28;
-    const circumference = 2 * Math.PI * radius;
-    const progress = circumference - (value / 100) * circumference;
-
     return (
         <View style={circleStyles.wrap}>
-            {/* SVG-like circle using border trick */}
             <View style={[circleStyles.ring, { borderColor: 'rgba(255,255,255,0.06)' }]}>
                 <View
                     style={[
@@ -126,8 +96,8 @@ const circleStyles = StyleSheet.create({
     label: { fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: '500' },
 });
 
-// ─── Duygu Çubuğu ──────────────────────────────────────────────────────────
-function SentimentBar({
+// ─── Duygu Çubuğu (herhangi etiket için) ───────────────────────────────────
+function EmotionBar({
     label,
     count,
     total,
@@ -152,7 +122,7 @@ function SentimentBar({
 
 const barStyles = StyleSheet.create({
     row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    labelText: { width: 58, fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: '500' },
+    labelText: { width: 72, fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: '500' },
     track: {
         flex: 1,
         height: 6,
@@ -180,7 +150,7 @@ export default function DashboardScreen() {
     // ── Toplu Analiz state ──
     const [batchMode, setBatchMode]             = useState(false);
     const [batchLoading, setBatchLoading]       = useState(false);
-    const [batchResults, setBatchResults]       = useState<{ text: string; label: string; confidence: number }[] | null>(null);
+    const [batchResults, setBatchResults]       = useState<{ text: string; label: string; confidence: number; scores?: Record<string,number> }[] | null>(null);
     const [batchError, setBatchError]           = useState<string | null>(null);
 
     // ── YouTube state ──
@@ -200,7 +170,7 @@ export default function DashboardScreen() {
         const { data, error } = await supabase
             .from('analysis_jobs')
             .select(
-                'id, job_type, youtube_video_title, total_analyzed, positive_count, negative_count, neutral_count, created_at'
+                'id, job_type, youtube_video_title, total_analyzed, emotions_summary, positive_count, negative_count, neutral_count, created_at'
             )
             .order('created_at', { ascending: false })
             .limit(30);
@@ -231,13 +201,13 @@ export default function DashboardScreen() {
             setManualError(error);
         } else if (data?.data) {
             setManualResult(data.data);
-            const lbl = normalizeLabel(data.data.label);
-            saveJob('manual', 0, {
-                positive: lbl === 'Olumlu' ? 1 : 0,
-                negative: lbl === 'Olumsuz' ? 1 : 0,
-                neutral:  lbl === 'Nötr' ? 1 : 0,
-                total: 1,
-            });
+            // emotions_summary JSONB olarak kaydet
+            const emotionsSummary = data.data.scores
+                ? Object.fromEntries(
+                      Object.entries(data.data.scores).map(([k, v]) => [k, Math.round(v)])
+                  )
+                : { [data.data.label]: 1 };
+            saveJob('manual', 0, { total: 1, emotionsSummary });
         }
     };
 
@@ -262,16 +232,14 @@ export default function DashboardScreen() {
         if (error) {
             setBatchError(error);
         } else if (data?.data) {
-            // Her labelʼı normalize et (Notr → Nötr) ve stateʼē kaydet
-            const normalized = data.data.map(d => ({
-                ...d,
-                label: normalizeLabel(d.label),
-            }));
-            setBatchResults(normalized);
-            const pos = normalized.filter(d => d.label === 'Olumlu').length;
-            const neg = normalized.filter(d => d.label === 'Olumsuz').length;
-            const neu = normalized.filter(d => d.label === 'Nötr').length;
-            saveJob('batch', 0, { positive: pos, negative: neg, neutral: neu, total: normalized.length });
+            setBatchResults(data.data);
+
+            // Duygu sayımı JSONB
+            const emotionsSummary: Record<string, number> = {};
+            for (const item of data.data) {
+                emotionsSummary[item.label] = (emotionsSummary[item.label] ?? 0) + 1;
+            }
+            saveJob('batch', 0, { total: data.data.length, emotionsSummary });
         }
     };
 
@@ -293,16 +261,18 @@ export default function DashboardScreen() {
             setYtError(error);
         } else if (data) {
             setYtResult(data);
-            const s = data.summary;
+            // breakdown'dan emotions_summary oluştur
+            const emotionsSummary: Record<string, number> = {};
+            for (const [label, info] of Object.entries(data.summary.breakdown)) {
+                emotionsSummary[label] = info.count;
+            }
             saveJob('youtube', 0, {
-                positive: s.breakdown?.Olumlu?.count ?? 0,
-                negative: s.breakdown?.Olumsuz?.count ?? 0,
-                neutral:  s.breakdown?.Nötr?.count ?? 0,
-                total:    s.total_analyzed,
+                total: data.summary.total_analyzed,
+                emotionsSummary,
                 youtube_url: ytUrl.trim(),
                 youtube_video_title: data.video_info?.title,
                 youtube_video_id: data.video_info?.video_id,
-                youtube_channel_name: data.video_info?.channel_title,
+                youtube_channel_name: data.video_info?.channel_title ?? data.video_info?.channel,
             });
         }
     };
@@ -312,10 +282,8 @@ export default function DashboardScreen() {
         type: string,
         _ms: number,
         counts: {
-            positive: number;
-            negative: number;
-            neutral: number;
             total: number;
+            emotionsSummary: Record<string, number>;
             youtube_url?: string;
             youtube_video_title?: string;
             youtube_video_id?: string;
@@ -330,9 +298,11 @@ export default function DashboardScreen() {
                 job_type:             type,
                 status:               'completed',
                 total_analyzed:       counts.total,
-                positive_count:       counts.positive,
-                negative_count:       counts.negative,
-                neutral_count:        counts.neutral,
+                emotions_summary:     counts.emotionsSummary,   // JSONB — dinamik
+                // Geriye dönük uyumluluk (eski model çalışıyorsa doldur)
+                positive_count:       counts.emotionsSummary['Olumlu'] ?? counts.emotionsSummary['joy'] ?? 0,
+                negative_count:       counts.emotionsSummary['Olumsuz'] ?? counts.emotionsSummary['anger'] ?? 0,
+                neutral_count:        counts.emotionsSummary['Nötr'] ?? counts.emotionsSummary['neutral'] ?? 0,
                 youtube_url:          counts.youtube_url ?? null,
                 youtube_video_title:  counts.youtube_video_title ?? null,
                 youtube_video_id:     counts.youtube_video_id ?? null,
@@ -481,7 +451,7 @@ interface AnalyzeTabProps {
     batchText: string;
     onBatchTextChange: (t: string) => void;
     batchLoading: boolean;
-    batchResults: { text: string; label: string; confidence: number }[] | null;
+    batchResults: { text: string; label: string; confidence: number; scores?: Record<string,number> }[] | null;
     batchError: string | null;
     onBatchAnalyze: () => void;
 }
@@ -502,9 +472,8 @@ function AnalyzeTab({
             <View style={at.row}>
                 <View>
                     <Text style={at.title}>Metin Analizi</Text>
-                    <Text style={at.subtitle}>Türkçe duygu analizi yapın</Text>
+                    <Text style={at.subtitle}>Duygu analizi yapın</Text>
                 </View>
-                {/* İki pill: aktif olan vurgulanmış, pasif soluk */}
                 <View style={at.modeSelector}>
                     <TouchableOpacity
                         onPress={() => !batchMode || onToggleBatch()}
@@ -529,7 +498,7 @@ function AnalyzeTab({
                     <Text style={at.cardLabel}>Analiz edilecek metin</Text>
                     <TextInput
                         style={at.textArea}
-                        placeholder="Türkçe metninizi buraya yazın..."
+                        placeholder="Metninizi buraya yazın..."
                         placeholderTextColor="rgba(255,255,255,0.22)"
                         value={manualText}
                         onChangeText={onManualTextChange}
@@ -798,6 +767,16 @@ function HistoryTab({ jobs, loading, onRefresh }: { jobs: HistoryJob[]; loading:
                 showsVerticalScrollIndicator={false}
                 renderItem={({ item }) => {
                     const total = item.total_analyzed || 1;
+
+                    // Dinamik duygu verileri — önce emotions_summary JSONB, yoksa eski sütunlar
+                    const emotionEntries = item.emotions_summary
+                        ? Object.entries(item.emotions_summary)
+                        : [
+                              ['Olumlu', item.positive_count],
+                              ['Olumsuz', item.negative_count],
+                              ['Nötr',   item.neutral_count],
+                          ] as [string, number][];
+
                     return (
                         <View style={hist.card}>
                             <View style={hist.cardTop}>
@@ -818,9 +797,18 @@ function HistoryTab({ jobs, loading, onRefresh }: { jobs: HistoryJob[]; loading:
                             <Text style={hist.totalText}>{item.total_analyzed} metin analiz edildi</Text>
 
                             <View style={hist.barsWrap}>
-                                <SentimentBar label="Olumlu" count={item.positive_count} total={total} color={Brand.positive} />
-                                <SentimentBar label="Olumsuz" count={item.negative_count} total={total} color={Brand.negative} />
-                                <SentimentBar label="Nötr"   count={item.neutral_count}  total={total} color={Brand.neutral} />
+                                {emotionEntries.map(([label, count]) => {
+                                    const meta = getEmotionMeta(label);
+                                    return (
+                                        <EmotionBar
+                                            key={label}
+                                            label={meta.label}
+                                            count={count as number}
+                                            total={total}
+                                            color={meta.color}
+                                        />
+                                    );
+                                })}
                             </View>
                         </View>
                     );
@@ -998,14 +986,18 @@ function GradientButton({ label, onPress, loading }: { label: string; onPress: (
     );
 }
 
+/**
+ * Tekil analiz sonuç kartı — dinamik duygu etiketi
+ */
 function SingleResultCard({ result }: { result: SingleAnalysisResult }) {
-    const label = normalizeLabel(result.label);
+    const meta = getEmotionMeta(result.label);
+
     return (
-        <View style={[shared.resultCard, { borderColor: LABEL_COLOR[label] + '40', backgroundColor: LABEL_BG[label] }]}>
+        <View style={[shared.resultCard, { borderColor: meta.color + '40', backgroundColor: meta.bg }]}>
             <View style={shared.resultTop}>
-                <Text style={shared.resultEmoji}>{LABEL_EMOJI[label]}</Text>
+                <Text style={shared.resultEmoji}>{meta.emoji}</Text>
                 <View style={{ flex: 1 }}>
-                    <Text style={[shared.resultLabel, { color: LABEL_COLOR[label] }]}>{label}</Text>
+                    <Text style={[shared.resultLabel, { color: meta.color }]}>{meta.label}</Text>
                     <Text style={shared.resultConf}>%{result.confidence.toFixed(1)} güven</Text>
                 </View>
                 <Text style={shared.resultTime}>{result.process_time_ms}ms</Text>
@@ -1016,39 +1008,77 @@ function SingleResultCard({ result }: { result: SingleAnalysisResult }) {
                 <View
                     style={[
                         shared.confFill,
-                        { width: `${result.confidence}%` as any, backgroundColor: LABEL_COLOR[label] },
+                        { width: `${result.confidence}%` as any, backgroundColor: meta.color },
                     ]}
                 />
             </View>
+
+            {/* Çoklu duygu skoru varsa mini çubuk listesi */}
+            {result.scores && Object.keys(result.scores).length > 1 && (
+                <View style={shared.scoresWrap}>
+                    <Text style={shared.scoresTitle}>Duygu Dağılımı</Text>
+                    {Object.entries(result.scores)
+                        .sort(([, a], [, b]) => b - a)
+                        .slice(0, 5)
+                        .map(([lbl, pct]) => {
+                            const sm = getEmotionMeta(lbl);
+                            return (
+                                <EmotionBar
+                                    key={lbl}
+                                    label={sm.label}
+                                    count={Math.round(pct)}
+                                    total={100}
+                                    color={sm.color}
+                                />
+                            );
+                        })}
+                </View>
+            )}
         </View>
     );
 }
 
-function BatchResultsCard({ results }: { results: { text: string; label: string; confidence: number }[] }) {
-    // results zaten normalize edilmiş gelir (handleBatchAnalyze içinde normalize edildi)
-    const pos = results.filter(r => r.label === 'Olumlu').length;
-    const neg = results.filter(r => r.label === 'Olumsuz').length;
-    const neu = results.filter(r => r.label === 'Nötr').length;
+/**
+ * Toplu analiz sonuç kartı — dinamik duygu etiketleri
+ */
+function BatchResultsCard({ results }: { results: { text: string; label: string; confidence: number; scores?: Record<string,number> }[] }) {
     const total = results.length;
+
+    // Duygu sayımı — herhangi etiket için
+    const counts: Record<string, number> = {};
+    for (const r of results) {
+        counts[r.label] = (counts[r.label] ?? 0) + 1;
+    }
 
     return (
         <View style={shared.batchCard}>
             <Text style={shared.batchTitle}>Toplu Analiz Sonuçları ({total} metin)</Text>
 
             <View style={shared.barsWrap}>
-                <SentimentBar label="Olumlu" count={pos} total={total} color={Brand.positive} />
-                <SentimentBar label="Olumsuz" count={neg} total={total} color={Brand.negative} />
-                <SentimentBar label="Nötr"   count={neu} total={total} color={Brand.neutral} />
+                {Object.entries(counts)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([label, count]) => {
+                        const meta = getEmotionMeta(label);
+                        return (
+                            <EmotionBar
+                                key={label}
+                                label={meta.label}
+                                count={count}
+                                total={total}
+                                color={meta.color}
+                            />
+                        );
+                    })}
             </View>
 
             <View style={shared.itemList}>
                 {results.map((r, i) => {
-                    const lbl = normalizeLabel(r.label);
+                    const meta = getEmotionMeta(r.label);
                     return (
                         <View key={i} style={shared.batchItem}>
-                            <View style={[shared.batchDot, { backgroundColor: LABEL_COLOR[lbl] }]} />
+                            <View style={[shared.batchDot, { backgroundColor: meta.color }]} />
                             <Text style={shared.batchItemText} numberOfLines={1}>{r.text}</Text>
-                            <Text style={[shared.batchItemLabel, { color: LABEL_COLOR[lbl] }]}>{lbl}</Text>
+                            <Text style={[shared.batchItemLabel, { color: meta.color }]}>{meta.label}</Text>
                         </View>
                     );
                 })}
@@ -1057,12 +1087,19 @@ function BatchResultsCard({ results }: { results: { text: string; label: string;
     );
 }
 
+/**
+ * YouTube analiz sonuç kartı — dinamik duygu dağılımı
+ */
 function YoutubeResultCard({ result }: { result: YoutubeAnalysisResult }) {
     const s = result.summary;
     const total = s.total_analyzed || 1;
-    const pos = s.breakdown?.Olumlu?.count ?? 0;
-    const neg = s.breakdown?.Olumsuz?.count ?? 0;
-    const neu = s.breakdown?.Nötr?.count ?? 0;
+
+    // breakdown'daki tüm etiketleri sayıca sırala
+    const sortedBreakdown = Object.entries(s.breakdown)
+        .sort(([, a], [, b]) => b.count - a.count);
+
+    // İlk 3'ü CircleProgress için al
+    const top3 = sortedBreakdown.slice(0, 3);
 
     return (
         <View style={ytRes.wrap}>
@@ -1074,7 +1111,7 @@ function YoutubeResultCard({ result }: { result: YoutubeAnalysisResult }) {
                 style={ytRes.videoCard}
             >
                 <Text style={ytRes.videoTitle} numberOfLines={2}>{result.video_info?.title}</Text>
-                <Text style={ytRes.channelName}>📺 {result.video_info?.channel_title}</Text>
+                <Text style={ytRes.channelName}>📺 {result.video_info?.channel_title ?? result.video_info?.channel}</Text>
                 <View style={ytRes.statsRow}>
                     <Text style={ytRes.stat}>👁 {parseInt(result.video_info?.view_count ?? '0').toLocaleString('tr-TR')}</Text>
                     <Text style={ytRes.stat}>💬 {s.total_fetched} yorum çekildi</Text>
@@ -1082,18 +1119,41 @@ function YoutubeResultCard({ result }: { result: YoutubeAnalysisResult }) {
                 </View>
             </LinearGradient>
 
-            {/* Dağılım kartı */}
+            {/* Dağılım kartı — dinamik */}
             <View style={ytRes.breakCard}>
                 <Text style={ytRes.sectionTitle}>Duygu Dağılımı</Text>
-                <View style={ytRes.circleRow}>
-                    <CircleProgress value={s.breakdown?.Olumlu?.percentage ?? 0} color={Brand.positive} label="Olumlu" />
-                    <CircleProgress value={s.breakdown?.Olumsuz?.percentage ?? 0} color={Brand.negative} label="Olumsuz" />
-                    <CircleProgress value={s.breakdown?.Nötr?.percentage ?? 0}   color={Brand.neutral}  label="Nötr" />
-                </View>
+
+                {/* En baskın 3 duygu için CircleProgress */}
+                {top3.length > 0 && (
+                    <View style={ytRes.circleRow}>
+                        {top3.map(([label, info]) => {
+                            const meta = getEmotionMeta(label);
+                            return (
+                                <CircleProgress
+                                    key={label}
+                                    value={info.percentage}
+                                    color={meta.color}
+                                    label={meta.label}
+                                />
+                            );
+                        })}
+                    </View>
+                )}
+
+                {/* Tüm duygular için bar listesi */}
                 <View style={{ gap: 8 }}>
-                    <SentimentBar label="Olumlu" count={pos} total={total} color={Brand.positive} />
-                    <SentimentBar label="Olumsuz" count={neg} total={total} color={Brand.negative} />
-                    <SentimentBar label="Nötr"   count={neu} total={total} color={Brand.neutral} />
+                    {sortedBreakdown.map(([label, info]) => {
+                        const meta = getEmotionMeta(label);
+                        return (
+                            <EmotionBar
+                                key={label}
+                                label={meta.label}
+                                count={info.count}
+                                total={total}
+                                color={meta.color}
+                            />
+                        );
+                    })}
                 </View>
             </View>
 
@@ -1102,14 +1162,14 @@ function YoutubeResultCard({ result }: { result: YoutubeAnalysisResult }) {
                 <View style={ytRes.commentSection}>
                     <Text style={ytRes.sectionTitle}>Yorumlar ({result.data.length})</Text>
                     {result.data.slice(0, 20).map((c, i) => {
-                        const lbl = normalizeLabel(c.label);
+                        const meta = getEmotionMeta(c.label);
                         return (
                             <View key={i} style={ytRes.commentCard}>
                                 <View style={ytRes.commentTop}>
                                     <Text style={ytRes.commentAuthor}>@{c.author}</Text>
-                                    <View style={[ytRes.labelBadge, { backgroundColor: LABEL_COLOR[lbl] + '22' }]}>
-                                        <Text style={[ytRes.labelBadgeText, { color: LABEL_COLOR[lbl] }]}>
-                                            {LABEL_EMOJI[lbl]} {lbl}
+                                    <View style={[ytRes.labelBadge, { backgroundColor: meta.color + '22' }]}>
+                                        <Text style={[ytRes.labelBadgeText, { color: meta.color }]}>
+                                            {meta.emoji} {meta.label}
                                         </Text>
                                     </View>
                                 </View>
@@ -1206,6 +1266,8 @@ const shared = StyleSheet.create({
         overflow: 'hidden',
     },
     confFill:   { height: '100%', borderRadius: 4 },
+    scoresWrap: { gap: 8, marginTop: 4 },
+    scoresTitle: { fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: '500', marginBottom: 4 },
     batchCard:  {
         backgroundColor: 'rgba(255,255,255,0.03)',
         borderRadius: 16,
