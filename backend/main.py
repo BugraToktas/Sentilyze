@@ -10,17 +10,20 @@ Model: ./sentilyze_model
 Yeni model eklenirse sadece klasoru güncelle, API kodu değişmez.
 """
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from transformers import pipeline
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any
+from sse_starlette.sse import EventSourceResponse
+import asyncio
 import time
 import os
 from dotenv import load_dotenv
 
 from youtube_fetcher import fetch_comments_from_url, extract_video_id
+import livestream as ls
 
 load_dotenv()
 
@@ -126,6 +129,17 @@ def _check_model():
             status_code=503,
             detail="Model henüz yüklenmedi veya yüklenirken hata oluştu. Sunucu loglarını kontrol edin.",
         )
+
+
+def _get_youtube_api_key() -> str:
+    """YouTube API anahtarını .env'den al, yoksa 500 hatası fırlat."""
+    key = os.getenv("YOUTUBE_API_KEY", "").strip()
+    if not key:
+        raise HTTPException(
+            status_code=500,
+            detail="YOUTUBE_API_KEY ortam değişkeni ayarlanmamış. backend/.env dosyasını kontrol edin.",
+        )
+    return key
 
 
 def _check_text(text: str):
@@ -477,8 +491,129 @@ def health_check():
         "max_text_length":  MAX_TEXT_LENGTH,
     }
 
-
-
 @app.get("/", include_in_schema=False)
 def root():
     return {"message": "Sentilyze API is running! Dokümantasyon için /docs adresine gidin."}
+
+
+# ===========================================================================
+# CANLI YAYIN (LIVE STREAM) — YouTube Chat Duygu Analizi
+# ===========================================================================
+
+class LiveStartRequest(BaseModel):
+    url: str
+    max_duration_minutes: int = 60   # Güvenlik: maksimum 60 dk analiz
+
+
+@app.post("/api/v1/live/youtube/start", summary="YouTube canlı yayın analizini başlat")
+async def start_live_analysis(request: LiveStartRequest, background_tasks: BackgroundTasks):
+    """
+    YouTube canlı yayın URL'sinden chat analizini başlatır.
+    Döner: session_id → diğer endpoint'lerde kullanılır.
+
+    SSE stream'i için: GET /api/v1/live/youtube/stream/{session_id}
+    """
+    _check_model()
+    api_key = _get_youtube_api_key()
+
+    if not request.url.strip():
+        raise HTTPException(status_code=400, detail="Lütfen geçerli bir YouTube URL'si girin.")
+
+    # Video ID'sini URL'den çıkar (mevcut extract_video_id fonksiyonunu kullan)
+    try:
+        video_id = extract_video_id(request.url)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Geçersiz YouTube URL formatı.")
+
+    # YouTube'dan liveChatId al
+    try:
+        chat_id, title, channel = await ls.get_live_chat_id(video_id, api_key)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"YouTube API hatası: {e}")
+
+    # Session oluştur
+    session_id = ls.create_session(video_id, title, channel, chat_id)
+
+    # Arka planda polling task'ını başlat
+    task = asyncio.create_task(
+        ls.run_live_session(session_id, emotion_pipe, api_key)
+    )
+    ls.SESSIONS[session_id].task = task
+
+    # Maksimum süre limitini uygula (güvenlik)
+    max_sec = request.max_duration_minutes * 60
+    async def auto_stop():
+        await asyncio.sleep(max_sec)
+        ls.stop_session(session_id)
+    asyncio.create_task(auto_stop())
+
+    return {
+        "status":     "started",
+        "session_id": session_id,
+        "video_id":   video_id,
+        "video_title": title,
+        "channel":    channel,
+        "live_chat_id": chat_id,
+        "stream_url": f"/api/v1/live/youtube/stream/{session_id}",
+    }
+
+
+@app.get("/api/v1/live/youtube/stream/{session_id}", summary="SSE — Gerçek zamanlı duygu akışı")
+async def live_stream_sse(session_id: str):
+    """
+    Server-Sent Events akışı.
+    Frontend bu URL'ye bağlanır ve her yeni 10sn'lik DataPoint için event alır.
+
+    Event tipleri:
+      - status   → bağlantı kuruldu, session bilgisi
+      - datapoint → yeni zaman dilimi verisi (her ~10sn)
+      - ended    → yayın bitti, özet
+    """
+    if session_id not in ls.SESSIONS:
+        raise HTTPException(status_code=404, detail="Session bulunamadı.")
+
+    return EventSourceResponse(ls.sse_stream(session_id))
+
+
+@app.delete("/api/v1/live/youtube/stop/{session_id}", summary="Canlı analizi durdur")
+def stop_live_analysis(session_id: str):
+    """Session'ı durdurur. SSE akışı otomatik kapanır."""
+    if not ls.stop_session(session_id):
+        raise HTTPException(status_code=404, detail="Session bulunamadı.")
+    session = ls.SESSIONS.get(session_id)
+    return {
+        "status":          "stopped",
+        "session_id":      session_id,
+        "total_messages":  session.total_messages if session else 0,
+        "data_points":     len(session.data_points) if session else 0,
+    }
+
+
+@app.get("/api/v1/live/youtube/status/{session_id}", summary="Canlı analiz oturumu özeti")
+def get_live_status(session_id: str):
+    """Oturumun tam özetini döndürür (tüm DataPoint'ler dahil)."""
+    session = ls.SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session bulunamadı.")
+    return session.to_summary()
+
+
+@app.get("/api/v1/live/sessions", summary="Aktif canlı analiz oturumları")
+def list_live_sessions():
+    """Sunucudaki tüm aktif session'ları listeler."""
+    return {
+        "count": len(ls.SESSIONS),
+        "sessions": [
+            {
+                "session_id":    sid,
+                "video_title":   s.video_title,
+                "status":        s.status,
+                "total_messages": s.total_messages,
+                "data_points":   len(s.data_points),
+                "started_at":    s.started_at.isoformat(),
+            }
+            for sid, s in ls.SESSIONS.items()
+        ],
+    }

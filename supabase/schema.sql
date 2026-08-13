@@ -270,3 +270,56 @@ BEGIN
     END IF;
 END;
 $$;
+
+
+-- =============================================================================
+-- 7. CANLI YAYIN TABLOLARI (v3 — YouTube Live / Twitch)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS live_sessions (
+    id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id         UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+
+    -- Platform (ileride: 'twitch', 'kick', vb.)
+    platform        TEXT NOT NULL DEFAULT 'youtube'
+                    CHECK (platform IN ('youtube', 'twitch', 'kick')),
+
+    -- Yayın bilgileri
+    video_id        TEXT,
+    video_title     TEXT,
+    channel_name    TEXT,
+    stream_url      TEXT,
+
+    -- Analiz özeti
+    total_messages  INT DEFAULT 0,
+    total_buckets   INT DEFAULT 0,         -- Kaç 10sn'lik dilim analiz edildi
+    peak_emotion    TEXT,                  -- En çok gözlemlenen duygu
+    duration_secs   INT,                   -- Toplam analiz süresi (saniye)
+
+    -- Tam zaman serisi verisi (JSONB — tüm DataPoint'ler)
+    -- [{ bucket_sec, message_count, emotions: {...}, dominant }, ...]
+    emotions_timeline JSONB,
+
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ended_at        TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS
+ALTER TABLE live_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "live_sessions_select_own"
+    ON live_sessions FOR SELECT
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "live_sessions_insert_own"
+    ON live_sessions FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "live_sessions_delete_own"
+    ON live_sessions FOR DELETE
+    USING (auth.uid() = user_id);
+
+-- Index
+CREATE INDEX IF NOT EXISTS live_sessions_user_id_idx ON live_sessions(user_id);
+CREATE INDEX IF NOT EXISTS live_sessions_created_at_idx ON live_sessions(created_at DESC);

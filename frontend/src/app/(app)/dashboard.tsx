@@ -32,11 +32,13 @@ import { useApi, type SingleAnalysisResult, type YoutubeAnalysisResult } from '@
 import { Brand, getEmotionMeta } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
+import LiveScreen from '@/app/(app)/live';
+import EmotionLineChart from '@/components/EmotionLineChart';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
 // ─── Alt Sekme Tipi ─────────────────────────────────────────────────────────
-type Tab = 'analyze' | 'youtube' | 'history' | 'profile';
+type Tab = 'analyze' | 'youtube' | 'live' | 'history' | 'profile';
 
 // ─── Geçmiş iş tipi ────────────────────────────────────────────────────────
 interface HistoryJob {
@@ -50,6 +52,24 @@ interface HistoryJob {
     negative_count: number;
     neutral_count: number;
     created_at: string;
+    // Tip ayırıcı
+    _source: 'job';
+}
+
+// ─── Canlı yayın geçmiş tipi ──────────────────────────────────────────
+interface LiveHistoryJob {
+    id: string;
+    platform: string;
+    video_id: string | null;
+    video_title: string | null;
+    channel_name: string | null;
+    total_messages: number;
+    total_buckets: number;
+    peak_emotion: string | null;
+    duration_secs: number | null;
+    emotions_timeline: Array<{ bucket_sec: number; message_count: number; emotions: Record<string, number>; dominant: string }> | null;
+    created_at: string;
+    _source: 'live';
 }
 
 // ─── Circular Progress ─────────────────────────────────────────────────────
@@ -142,41 +162,63 @@ export default function DashboardScreen() {
     const [activeTab, setActiveTab] = useState<Tab>('analyze');
 
     // ── Analiz metin state (tekil ve toplu aynı textarea'ı paylaşır) ──
-    const [sharedText, setSharedText]           = useState('');
-    const [manualLoading, setManualLoading]     = useState(false);
-    const [manualResult, setManualResult]       = useState<SingleAnalysisResult | null>(null);
-    const [manualError, setManualError]         = useState<string | null>(null);
+    const [sharedText, setSharedText] = useState('');
+    const [manualLoading, setManualLoading] = useState(false);
+    const [manualResult, setManualResult] = useState<SingleAnalysisResult | null>(null);
+    const [manualError, setManualError] = useState<string | null>(null);
 
     // ── Toplu Analiz state ──
-    const [batchMode, setBatchMode]             = useState(false);
-    const [batchLoading, setBatchLoading]       = useState(false);
-    const [batchResults, setBatchResults]       = useState<{ text: string; label: string; confidence: number; scores?: Record<string,number> }[] | null>(null);
-    const [batchError, setBatchError]           = useState<string | null>(null);
+    const [batchMode, setBatchMode] = useState(false);
+    const [batchLoading, setBatchLoading] = useState(false);
+    const [batchResults, setBatchResults] = useState<{ text: string; label: string; confidence: number; scores?: Record<string, number> }[] | null>(null);
+    const [batchError, setBatchError] = useState<string | null>(null);
 
     // ── YouTube state ──
-    const [ytUrl, setYtUrl]                     = useState('');
-    const [ytMaxComments, setYtMaxComments]     = useState('100');
-    const [ytLoading, setYtLoading]             = useState(false);
-    const [ytResult, setYtResult]               = useState<YoutubeAnalysisResult | null>(null);
-    const [ytError, setYtError]                 = useState<string | null>(null);
+    const [ytUrl, setYtUrl] = useState('');
+    const [ytMaxComments, setYtMaxComments] = useState('100');
+    const [ytLoading, setYtLoading] = useState(false);
+    const [ytResult, setYtResult] = useState<YoutubeAnalysisResult | null>(null);
+    const [ytError, setYtError] = useState<string | null>(null);
 
     // ── Geçmiş state ──
-    const [history, setHistory]                 = useState<HistoryJob[]>([]);
-    const [historyLoading, setHistoryLoading]   = useState(false);
+    const [history, setHistory] = useState<(HistoryJob | LiveHistoryJob)[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
 
-    // ── Geçmiş yükle ──
+    // ── Geçmiş yükleme: analysis_jobs + live_sessions birleştir ──
     const loadHistory = useCallback(async () => {
         setHistoryLoading(true);
-        const { data, error } = await supabase
+
+        // 1. analysis_jobs
+        const { data: jobs } = await supabase
             .from('analysis_jobs')
             .select(
                 'id, job_type, youtube_video_title, total_analyzed, emotions_summary, positive_count, negative_count, neutral_count, created_at'
             )
             .order('created_at', { ascending: false })
-            .limit(30);
+            .limit(20);
+
+        // 2. live_sessions
+        const { data: liveSessions } = await supabase
+            .from('live_sessions')
+            .select(
+                'id, platform, video_id, video_title, channel_name, total_messages, total_buckets, peak_emotion, duration_secs, emotions_timeline, created_at'
+            )
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        // 3. Birleştir ve tarihe göre sırala
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const jobItems: HistoryJob[] = (jobs ?? []).map((j: any) => ({ ...j, _source: 'job' as const }));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const liveItems: LiveHistoryJob[] = (liveSessions ?? []).map((l: any) => ({ ...l, _source: 'live' as const }));
+        const merged = [...jobItems, ...liveItems].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
         setHistoryLoading(false);
-        if (!error && data) setHistory(data as HistoryJob[]);
+        setHistory(merged);
     }, []);
+
 
     useFocusEffect(
         useCallback(() => {
@@ -204,8 +246,8 @@ export default function DashboardScreen() {
             // emotions_summary JSONB olarak kaydet
             const emotionsSummary = data.data.scores
                 ? Object.fromEntries(
-                      Object.entries(data.data.scores).map(([k, v]) => [k, Math.round(v)])
-                  )
+                    Object.entries(data.data.scores).map(([k, v]) => [k, Math.round(v)])
+                )
                 : { [data.data.label]: 1 };
             saveJob('manual', 0, { total: 1, emotionsSummary });
         }
@@ -294,21 +336,21 @@ export default function DashboardScreen() {
         try {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             await (supabase.from('analysis_jobs') as any).insert({
-                user_id:              user.id,
-                job_type:             type,
-                status:               'completed',
-                total_analyzed:       counts.total,
-                emotions_summary:     counts.emotionsSummary,   // JSONB — dinamik
+                user_id: user.id,
+                job_type: type,
+                status: 'completed',
+                total_analyzed: counts.total,
+                emotions_summary: counts.emotionsSummary,   // JSONB — dinamik
                 // Geriye dönük uyumluluk (eski model çalışıyorsa doldur)
-                positive_count:       counts.emotionsSummary['Olumlu'] ?? counts.emotionsSummary['joy'] ?? 0,
-                negative_count:       counts.emotionsSummary['Olumsuz'] ?? counts.emotionsSummary['anger'] ?? 0,
-                neutral_count:        counts.emotionsSummary['Nötr'] ?? counts.emotionsSummary['neutral'] ?? 0,
-                youtube_url:          counts.youtube_url ?? null,
-                youtube_video_title:  counts.youtube_video_title ?? null,
-                youtube_video_id:     counts.youtube_video_id ?? null,
+                positive_count: counts.emotionsSummary['Olumlu'] ?? counts.emotionsSummary['joy'] ?? 0,
+                negative_count: counts.emotionsSummary['Olumsuz'] ?? counts.emotionsSummary['anger'] ?? 0,
+                neutral_count: counts.emotionsSummary['Nötr'] ?? counts.emotionsSummary['neutral'] ?? 0,
+                youtube_url: counts.youtube_url ?? null,
+                youtube_video_title: counts.youtube_video_title ?? null,
+                youtube_video_id: counts.youtube_video_id ?? null,
                 youtube_channel_name: counts.youtube_channel_name ?? null,
             });
-        } catch {/* sessiz hata */}
+        } catch {/* sessiz hata */ }
     };
 
     // ───────────────────────────────────────────────────────────────────────
@@ -399,6 +441,10 @@ export default function DashboardScreen() {
                     />
                 )}
 
+                {activeTab === 'live' && (
+                    <LiveScreen />
+                )}
+
                 {activeTab === 'profile' && (
                     <ProfileTab user={user} onSignOut={signOut} />
                 )}
@@ -408,10 +454,11 @@ export default function DashboardScreen() {
             <View style={s.tabBar}>
                 {(
                     [
-                        { key: 'analyze',  icon: '🔍', label: 'Analiz' },
-                        { key: 'youtube',  icon: '▶️',  label: 'YouTube' },
-                        { key: 'history',  icon: '📋',  label: 'Geçmiş' },
-                        { key: 'profile',  icon: '👤',  label: 'Profil' },
+                        { key: 'analyze', icon: '🔍', label: 'Analiz' },
+                        { key: 'youtube', icon: '▶️', label: 'YouTube' },
+                        { key: 'live', icon: '📡', label: 'Canlı' },
+                        { key: 'history', icon: '📋', label: 'Geçmiş' },
+                        { key: 'profile', icon: '👤', label: 'Profil' },
                     ] as { key: Tab; icon: string; label: string }[]
                 ).map(tab => {
                     const active = activeTab === tab.key;
@@ -451,7 +498,7 @@ interface AnalyzeTabProps {
     batchText: string;
     onBatchTextChange: (t: string) => void;
     batchLoading: boolean;
-    batchResults: { text: string; label: string; confidence: number; scores?: Record<string,number> }[] | null;
+    batchResults: { text: string; label: string; confidence: number; scores?: Record<string, number> }[] | null;
     batchError: string | null;
     onBatchAnalyze: () => void;
 }
@@ -555,8 +602,8 @@ function AnalyzeTab({
 
 const at = StyleSheet.create({
     scroll: { padding: 20, gap: 16, paddingBottom: 40 },
-    row:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    title:  { fontSize: 22, fontWeight: '700', color: '#fff' },
+    row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    title: { fontSize: 22, fontWeight: '700', color: '#fff' },
     subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 2 },
     modeSelector: {
         flexDirection: 'row',
@@ -675,10 +722,10 @@ function YoutubeTab({ url, onUrlChange, maxComments, onMaxCommentsChange, loadin
 }
 
 const yt = StyleSheet.create({
-    scroll:  { padding: 20, gap: 16, paddingBottom: 40 },
-    title:   { fontSize: 22, fontWeight: '700', color: '#fff' },
+    scroll: { padding: 20, gap: 16, paddingBottom: 40 },
+    title: { fontSize: 22, fontWeight: '700', color: '#fff' },
     subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 2 },
-    card:    {
+    card: {
         backgroundColor: 'rgba(255,255,255,0.04)',
         borderRadius: 20,
         borderWidth: 1,
@@ -686,8 +733,8 @@ const yt = StyleSheet.create({
         padding: 18,
         gap: 12,
     },
-    label:   { fontSize: 13, color: 'rgba(255,255,255,0.55)', fontWeight: '500' },
-    input:   {
+    label: { fontSize: 13, color: 'rgba(255,255,255,0.55)', fontWeight: '500' },
+    input: {
         backgroundColor: 'rgba(255,255,255,0.05)',
         borderRadius: 12,
         borderWidth: 1,
@@ -711,22 +758,22 @@ const yt = StyleSheet.create({
         backgroundColor: 'rgba(124,58,237,0.2)',
         borderColor: Brand.primary,
     },
-    chipText:       { color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '600' },
+    chipText: { color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '600' },
     chipTextActive: { color: Brand.primaryLight },
-    loadingInfo:  { flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'center', paddingVertical: 8 },
-    loadingText:  { color: 'rgba(255,255,255,0.45)', fontSize: 13 },
+    loadingInfo: { flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'center', paddingVertical: 8 },
+    loadingText: { color: 'rgba(255,255,255,0.45)', fontSize: 13 },
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HISTORY TAB
 // ═══════════════════════════════════════════════════════════════════════════
-function HistoryTab({ jobs, loading, onRefresh }: { jobs: HistoryJob[]; loading: boolean; onRefresh: () => void }) {
+function HistoryTab({ jobs, loading, onRefresh }: { jobs: (HistoryJob | LiveHistoryJob)[]; loading: boolean; onRefresh: () => void }) {
     const typeLabel: Record<string, string> = {
-        manual:   '📝 Metin',
-        batch:    '📄 Toplu',
-        youtube:  '▶️ YouTube',
-        ecommerce:'🛍️ E-Ticaret',
-        gmaps:    '📍 Harita',
+        manual: '📝 Metin',
+        batch: '📄 Toplu',
+        youtube: '▶️ YouTube',
+        ecommerce: '🛒️ E-Ticaret',
+        gmaps: '📍 Harita',
     };
 
     if (loading) {
@@ -766,35 +813,115 @@ function HistoryTab({ jobs, loading, onRefresh }: { jobs: HistoryJob[]; loading:
                 contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}
                 showsVerticalScrollIndicator={false}
                 renderItem={({ item }) => {
-                    const total = item.total_analyzed || 1;
+                    // ── CANLI YAYIN KARTI ──
+                    if (item._source === 'live') {
+                        const liveItem = item as LiveHistoryJob;
+                        const timeline = liveItem.emotions_timeline ?? [];
+                        const peakMeta = liveItem.peak_emotion ? getEmotionMeta(liveItem.peak_emotion) : null;
+                        const durationStr = liveItem.duration_secs
+                            ? liveItem.duration_secs >= 60
+                                ? `${Math.floor(liveItem.duration_secs / 60)}dk ${liveItem.duration_secs % 60}sn`
+                                : `${liveItem.duration_secs}sn`
+                            : '—';
 
-                    // Dinamik duygu verileri — önce emotions_summary JSONB, yoksa eski sütunlar
-                    const emotionEntries = item.emotions_summary
-                        ? Object.entries(item.emotions_summary)
+                        return (
+                            <View style={[hist.card, hist.liveCard]}>
+                                <View style={hist.cardTop}>
+                                    <View style={hist.liveBadgeWrap}>
+                                        <View style={hist.liveDot} />
+                                        <Text style={hist.liveTag}>📡 YouTube Live</Text>
+                                    </View>
+                                    <Text style={hist.date}>
+                                        {new Date(liveItem.created_at).toLocaleDateString('tr-TR', {
+                                            day: '2-digit', month: 'short', year: 'numeric',
+                                        })}
+                                    </Text>
+                                </View>
+
+                                {liveItem.video_title && (
+                                    <Text style={hist.videoTitle} numberOfLines={2}>
+                                        {liveItem.video_title}
+                                    </Text>
+                                )}
+                                {liveItem.channel_name && (
+                                    <Text style={hist.channelName}>📺 {liveItem.channel_name}</Text>
+                                )}
+
+                                <View style={hist.liveStats}>
+                                    <View style={hist.liveStatItem}>
+                                        <Text style={hist.liveStatValue}>{liveItem.total_messages.toLocaleString('tr-TR')}</Text>
+                                        <Text style={hist.liveStatLabel}>Mesaj</Text>
+                                    </View>
+                                    <View style={hist.liveStatDivider} />
+                                    <View style={hist.liveStatItem}>
+                                        <Text style={hist.liveStatValue}>{liveItem.total_buckets}</Text>
+                                        <Text style={hist.liveStatLabel}>Veri Noktası</Text>
+                                    </View>
+                                    <View style={hist.liveStatDivider} />
+                                    <View style={hist.liveStatItem}>
+                                        <Text style={hist.liveStatValue}>{durationStr}</Text>
+                                        <Text style={hist.liveStatLabel}>Süre</Text>
+                                    </View>
+                                    {peakMeta && (
+                                        <>
+                                            <View style={hist.liveStatDivider} />
+                                            <View style={hist.liveStatItem}>
+                                                <Text style={[hist.liveStatValue, { color: peakMeta.color }]}>
+                                                    {peakMeta.emoji}
+                                                </Text>
+                                                <Text style={[hist.liveStatLabel, { color: peakMeta.color }]}>
+                                                    {peakMeta.label}
+                                                </Text>
+                                            </View>
+                                        </>
+                                    )}
+                                </View>
+
+                                {/* Duygu zaman serisi grafiği */}
+                                {timeline.length > 0 && (
+                                    <View style={hist.chartWrap}>
+                                        <Text style={hist.chartLabel}>Duygu Zaman Serisi</Text>
+                                        <EmotionLineChart
+                                            dataPoints={timeline}
+                                            height={160}
+                                        />
+                                    </View>
+                                )}
+                            </View>
+                        );
+                    }
+
+                    // ── NORMAL ANALİZ KARTI ──
+                    const jobItem = item as HistoryJob;
+                    const total = jobItem.total_analyzed || 1;
+                    const emotionEntries = jobItem.emotions_summary
+                        ? Object.entries(jobItem.emotions_summary)
                         : [
-                              ['Olumlu', item.positive_count],
-                              ['Olumsuz', item.negative_count],
-                              ['Nötr',   item.neutral_count],
-                          ] as [string, number][];
+                            ['Olumlu', jobItem.positive_count],
+                            ['Olumsuz', jobItem.negative_count],
+                            ['Nötr', jobItem.neutral_count],
+                        ] as [string, number][];
 
                     return (
                         <View style={hist.card}>
                             <View style={hist.cardTop}>
-                                <Text style={hist.typeTag}>{typeLabel[item.job_type] ?? item.job_type}</Text>
+                                <Text style={hist.typeTag}>{typeLabel[jobItem.job_type] ?? jobItem.job_type}</Text>
                                 <Text style={hist.date}>
-                                    {new Date(item.created_at).toLocaleDateString('tr-TR', {
+                                    {new Date(jobItem.created_at).toLocaleDateString('tr-TR', {
                                         day: '2-digit', month: 'short', year: 'numeric',
                                     })}
                                 </Text>
                             </View>
 
-                            {item.youtube_video_title && (
+                            {jobItem.youtube_video_title && (
                                 <Text style={hist.videoTitle} numberOfLines={2}>
-                                    {item.youtube_video_title}
+                                    {jobItem.youtube_video_title}
                                 </Text>
                             )}
 
-                            <Text style={hist.totalText}>{item.total_analyzed} metin analiz edildi</Text>
+                            <Text style={hist.totalText}>
+                                {jobItem.job_type === 'manual' ? '1 metin' : `${jobItem.total_analyzed} metin`} analiz edildi
+                            </Text>
 
                             <View style={hist.barsWrap}>
                                 {emotionEntries.map(([label, count]) => {
@@ -818,13 +945,15 @@ function HistoryTab({ jobs, loading, onRefresh }: { jobs: HistoryJob[]; loading:
     );
 }
 
+
+
 const hist = StyleSheet.create({
-    center:      { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-    emptyTitle:  { fontSize: 18, fontWeight: '700', color: '#fff' },
-    emptyText:   { fontSize: 14, color: 'rgba(255,255,255,0.4)' },
-    headerRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
-    title:       { fontSize: 20, fontWeight: '700', color: '#fff' },
-    refreshBtn:  {
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+    emptyTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
+    emptyText: { fontSize: 14, color: 'rgba(255,255,255,0.4)' },
+    headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+    title: { fontSize: 20, fontWeight: '700', color: '#fff' },
+    refreshBtn: {
         backgroundColor: 'rgba(124,58,237,0.15)',
         borderRadius: 8,
         borderWidth: 1,
@@ -841,12 +970,36 @@ const hist = StyleSheet.create({
         padding: 16,
         gap: 10,
     },
-    cardTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    typeTag:     { fontSize: 13, color: Brand.primaryLight, fontWeight: '600' },
-    date:        { fontSize: 12, color: 'rgba(255,255,255,0.35)' },
-    videoTitle:  { fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 18 },
-    totalText:   { fontSize: 12, color: 'rgba(255,255,255,0.4)' },
-    barsWrap:    { gap: 8 },
+    // ── Canlı yayın kartı ──
+    liveCard: {
+        borderColor: 'rgba(239,68,68,0.25)',
+        backgroundColor: 'rgba(239,68,68,0.04)',
+    },
+    liveBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#EF4444' },
+    liveTag: { fontSize: 13, color: '#EF4444', fontWeight: '700' },
+    channelName: { fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: -4 },
+    liveStats: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.04)',
+        borderRadius: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 6,
+    },
+    liveStatItem: { flex: 1, alignItems: 'center', gap: 2 },
+    liveStatValue: { fontSize: 15, fontWeight: '800', color: '#fff' },
+    liveStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.4)' },
+    liveStatDivider: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.08)' },
+    chartWrap: { gap: 8 },
+    chartLabel: { fontSize: 12, color: 'rgba(255,255,255,0.4)', fontWeight: '500' },
+    // ── Normal analiz kartı ──
+    cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    typeTag: { fontSize: 13, color: Brand.primaryLight, fontWeight: '600' },
+    date: { fontSize: 12, color: 'rgba(255,255,255,0.35)' },
+    videoTitle: { fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 18, fontWeight: '600' },
+    totalText: { fontSize: 12, color: 'rgba(255,255,255,0.4)' },
+    barsWrap: { gap: 8 },
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -882,7 +1035,7 @@ function ProfileTab({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                         {user?.created_at
                             ? new Date(user.created_at).toLocaleDateString('tr-TR', {
                                 day: '2-digit', month: 'long', year: 'numeric',
-                              })
+                            })
                             : '—'}
                     </Text>
                 </View>
@@ -913,9 +1066,9 @@ function ProfileTab({ user, onSignOut }: { user: any; onSignOut: () => void }) {
 }
 
 const prof = StyleSheet.create({
-    scroll:     { padding: 24, gap: 20, alignItems: 'center', paddingBottom: 60 },
+    scroll: { padding: 24, gap: 20, alignItems: 'center', paddingBottom: 60 },
     avatarWrap: { alignItems: 'center', gap: 10, marginTop: 16 },
-    avatar:     {
+    avatar: {
         width: 88,
         height: 88,
         borderRadius: 44,
@@ -928,9 +1081,9 @@ const prof = StyleSheet.create({
         elevation: 8,
     },
     avatarText: { fontSize: 36, color: '#fff', fontWeight: '700' },
-    name:       { fontSize: 20, fontWeight: '700', color: '#fff' },
-    email:      { fontSize: 13, color: 'rgba(255,255,255,0.45)' },
-    card:       {
+    name: { fontSize: 20, fontWeight: '700', color: '#fff' },
+    email: { fontSize: 13, color: 'rgba(255,255,255,0.45)' },
+    card: {
         width: '100%',
         backgroundColor: 'rgba(255,255,255,0.04)',
         borderRadius: 18,
@@ -939,11 +1092,11 @@ const prof = StyleSheet.create({
         padding: 18,
         gap: 14,
     },
-    cardTitle:  { fontSize: 15, fontWeight: '700', color: '#fff' },
-    row:        { flexDirection: 'row', justifyContent: 'space-between' },
-    rowKey:     { fontSize: 13, color: 'rgba(255,255,255,0.5)' },
-    rowVal:     { fontSize: 13, color: 'rgba(255,255,255,0.85)', fontWeight: '500' },
-    divider:    { height: 1, backgroundColor: 'rgba(255,255,255,0.06)' },
+    cardTitle: { fontSize: 15, fontWeight: '700', color: '#fff' },
+    row: { flexDirection: 'row', justifyContent: 'space-between' },
+    rowKey: { fontSize: 13, color: 'rgba(255,255,255,0.5)' },
+    rowVal: { fontSize: 13, color: 'rgba(255,255,255,0.85)', fontWeight: '500' },
+    divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.06)' },
     signOutBtn: {
         width: '100%',
         backgroundColor: 'rgba(239,68,68,0.1)',
@@ -1041,7 +1194,7 @@ function SingleResultCard({ result }: { result: SingleAnalysisResult }) {
 /**
  * Toplu analiz sonuç kartı — dinamik duygu etiketleri
  */
-function BatchResultsCard({ results }: { results: { text: string; label: string; confidence: number; scores?: Record<string,number> }[] }) {
+function BatchResultsCard({ results }: { results: { text: string; label: string; confidence: number; scores?: Record<string, number> }[] }) {
     const total = results.length;
 
     // Duygu sayımı — herhangi etiket için
@@ -1188,19 +1341,19 @@ function YoutubeResultCard({ result }: { result: YoutubeAnalysisResult }) {
 }
 
 const ytRes = StyleSheet.create({
-    wrap:          { gap: 14 },
-    videoCard:     {
+    wrap: { gap: 14 },
+    videoCard: {
         borderRadius: 18,
         borderWidth: 1,
         borderColor: 'rgba(124,58,237,0.2)',
         padding: 18,
         gap: 8,
     },
-    videoTitle:    { fontSize: 15, fontWeight: '700', color: '#fff', lineHeight: 20 },
-    channelName:   { fontSize: 13, color: 'rgba(255,255,255,0.55)' },
-    statsRow:      { flexDirection: 'row', gap: 14, flexWrap: 'wrap', marginTop: 4 },
-    stat:          { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
-    breakCard:     {
+    videoTitle: { fontSize: 15, fontWeight: '700', color: '#fff', lineHeight: 20 },
+    channelName: { fontSize: 13, color: 'rgba(255,255,255,0.55)' },
+    statsRow: { flexDirection: 'row', gap: 14, flexWrap: 'wrap', marginTop: 4 },
+    stat: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+    breakCard: {
         backgroundColor: 'rgba(255,255,255,0.04)',
         borderRadius: 18,
         borderWidth: 1,
@@ -1208,10 +1361,10 @@ const ytRes = StyleSheet.create({
         padding: 18,
         gap: 16,
     },
-    sectionTitle:  { fontSize: 15, fontWeight: '700', color: '#fff' },
-    circleRow:     { flexDirection: 'row', justifyContent: 'space-around' },
+    sectionTitle: { fontSize: 15, fontWeight: '700', color: '#fff' },
+    circleRow: { flexDirection: 'row', justifyContent: 'space-around' },
     commentSection: { gap: 10 },
-    commentCard:   {
+    commentCard: {
         backgroundColor: 'rgba(255,255,255,0.04)',
         borderRadius: 14,
         borderWidth: 1,
@@ -1219,13 +1372,13 @@ const ytRes = StyleSheet.create({
         padding: 14,
         gap: 6,
     },
-    commentTop:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    commentTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     commentAuthor: { fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: '500' },
-    labelBadge:    { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+    labelBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
     labelBadgeText: { fontSize: 11, fontWeight: '700' },
-    commentText:   { fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 18 },
-    commentConf:   { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
-    moreText:      { textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 13, paddingVertical: 8 },
+    commentText: { fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 18 },
+    commentConf: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
+    moreText: { textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 13, paddingVertical: 8 },
 });
 
 const shared = StyleSheet.create({
@@ -1237,7 +1390,7 @@ const shared = StyleSheet.create({
         padding: 12,
     },
     errorText: { color: '#FCA5A5', fontSize: 13 },
-    btnWrap:   {
+    btnWrap: {
         borderRadius: 14,
         overflow: 'hidden',
         shadowColor: Brand.primary,
@@ -1246,29 +1399,29 @@ const shared = StyleSheet.create({
         shadowOffset: { width: 0, height: 4 },
         elevation: 6,
     },
-    btn:       { paddingVertical: 15, alignItems: 'center', justifyContent: 'center' },
-    btnText:   { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.3 },
+    btn: { paddingVertical: 15, alignItems: 'center', justifyContent: 'center' },
+    btnText: { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.3 },
     resultCard: {
         borderRadius: 16,
         borderWidth: 1,
         padding: 18,
         gap: 12,
     },
-    resultTop:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    resultTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     resultEmoji: { fontSize: 32 },
     resultLabel: { fontSize: 20, fontWeight: '800' },
-    resultConf:  { fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
-    resultTime:  { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
-    confTrack:  {
+    resultConf: { fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
+    resultTime: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
+    confTrack: {
         height: 6,
         backgroundColor: 'rgba(255,255,255,0.08)',
         borderRadius: 4,
         overflow: 'hidden',
     },
-    confFill:   { height: '100%', borderRadius: 4 },
+    confFill: { height: '100%', borderRadius: 4 },
     scoresWrap: { gap: 8, marginTop: 4 },
     scoresTitle: { fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: '500', marginBottom: 4 },
-    batchCard:  {
+    batchCard: {
         backgroundColor: 'rgba(255,255,255,0.03)',
         borderRadius: 16,
         borderWidth: 1,
@@ -1277,28 +1430,28 @@ const shared = StyleSheet.create({
         gap: 14,
     },
     batchTitle: { fontSize: 14, fontWeight: '700', color: '#fff' },
-    barsWrap:   { gap: 8 },
-    itemList:   { gap: 6 },
-    batchItem:  { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
-    batchDot:   { width: 8, height: 8, borderRadius: 4 },
-    batchItemText:  { flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.65)' },
+    barsWrap: { gap: 8 },
+    itemList: { gap: 6 },
+    batchItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+    batchDot: { width: 8, height: 8, borderRadius: 4 },
+    batchItemText: { flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.65)' },
     batchItemLabel: { fontSize: 12, fontWeight: '600' },
 });
 
 // ─── Ana ekran stilleri ────────────────────────────────────────────────────
 const s = StyleSheet.create({
-    root:    { flex: 1, backgroundColor: '#08080F' },
-    glowTL:  {
+    root: { flex: 1, backgroundColor: '#08080F' },
+    glowTL: {
         position: 'absolute', top: -100, left: -100,
         width: 320, height: 320, borderRadius: 160,
         backgroundColor: 'rgba(124,58,237,0.12)',
     },
-    glowBR:  {
+    glowBR: {
         position: 'absolute', bottom: -80, right: -80,
         width: 260, height: 260, borderRadius: 130,
         backgroundColor: 'rgba(37,99,235,0.1)',
     },
-    header:  {
+    header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -1306,15 +1459,15 @@ const s = StyleSheet.create({
         paddingTop: Platform.OS === 'ios' ? 60 : 48,
         paddingBottom: 16,
     },
-    headerLeft:    { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    headerLogo:    {
+    headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    headerLogo: {
         width: 40, height: 40, borderRadius: 12,
         alignItems: 'center', justifyContent: 'center',
     },
     headerLogoText: { fontSize: 18, color: '#fff' },
     headerGreeting: { fontSize: 12, color: 'rgba(255,255,255,0.45)' },
-    headerName:    { fontSize: 16, fontWeight: '700', color: '#fff', maxWidth: SCREEN_W * 0.45 },
-    signOutBtn:    {
+    headerName: { fontSize: 16, fontWeight: '700', color: '#fff', maxWidth: SCREEN_W * 0.45 },
+    signOutBtn: {
         backgroundColor: 'rgba(255,255,255,0.06)',
         borderRadius: 10,
         borderWidth: 1,
@@ -1322,9 +1475,9 @@ const s = StyleSheet.create({
         paddingHorizontal: 14,
         paddingVertical: 8,
     },
-    signOutText:   { color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: '500' },
-    content:       { flex: 1, overflow: 'hidden' },
-    tabBar:        {
+    signOutText: { color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: '500' },
+    content: { flex: 1, overflow: 'hidden' },
+    tabBar: {
         flexDirection: 'row',
         backgroundColor: 'rgba(255,255,255,0.04)',
         borderTopWidth: 1,
@@ -1332,14 +1485,14 @@ const s = StyleSheet.create({
         paddingBottom: Platform.OS === 'ios' ? 24 : 10,
         paddingTop: 10,
     },
-    tabItem:        { flex: 1, alignItems: 'center', gap: 4 },
-    tabIconWrap:    {
+    tabItem: { flex: 1, alignItems: 'center', gap: 4 },
+    tabIconWrap: {
         width: 40, height: 28,
         alignItems: 'center', justifyContent: 'center',
         borderRadius: 12,
     },
     tabIconActive: { backgroundColor: 'rgba(124,58,237,0.2)' },
-    tabIcon:       { fontSize: 16 },
-    tabLabel:      { fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: '500' },
+    tabIcon: { fontSize: 16 },
+    tabLabel: { fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: '500' },
     tabLabelActive: { color: Brand.primaryLight, fontWeight: '700' },
 });
