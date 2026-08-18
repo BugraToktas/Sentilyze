@@ -17,7 +17,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Brand } from '@/constants/theme';
 
 export default function RegisterScreen() {
-    const { signUp, signInGoogle } = useAuth();
+    const { signUp } = useAuth();
     const router = useRouter();
 
     const [displayName, setDisplayName] = useState('');
@@ -25,7 +25,6 @@ export default function RegisterScreen() {
     const [password,    setPassword]    = useState('');
     const [confirm,     setConfirm]     = useState('');
     const [loading,     setLoading]     = useState(false);
-    const [googleLoad,  setGoogleLoad]  = useState(false);
     const [focusField,  setFocusField]  = useState<string | null>(null);
     const [error,       setError]       = useState<string | null>(null);
 
@@ -51,18 +50,12 @@ export default function RegisterScreen() {
         } else {
             Alert.alert(
                 'Hesap Oluşturuldu! 🎉',
-                'Email adresine doğrulama bağlantısı gönderildi. Giriş yapabilirsin.',
+                'Hesabın hazır. Giriş yapabilirsin.',
                 [{ text: 'Tamam', onPress: () => router.replace('/(auth)/login') }]
             );
         }
     };
 
-    const handleGoogle = async () => {
-        setGoogleLoad(true);
-        const { error: err } = await signInGoogle();
-        setGoogleLoad(false);
-        if (err) Alert.alert('Google Girişi', err);
-    };
 
     const inputStyle = (field: string) => [
         styles.input,
@@ -198,29 +191,6 @@ export default function RegisterScreen() {
                                     : <Text style={styles.primaryBtnText}>Hesap Oluştur</Text>
                                 }
                             </LinearGradient>
-                        </TouchableOpacity>
-
-                        {/* Ayırıcı */}
-                        <View style={styles.divider}>
-                            <View style={styles.dividerLine} />
-                            <Text style={styles.dividerText}>veya</Text>
-                            <View style={styles.dividerLine} />
-                        </View>
-
-                        {/* Google butonu */}
-                        <TouchableOpacity
-                            onPress={handleGoogle}
-                            disabled={googleLoad}
-                            activeOpacity={0.85}
-                            style={styles.googleBtn}
-                        >
-                            {googleLoad
-                                ? <ActivityIndicator color="#fff" size="small" />
-                                : <>
-                                    <Text style={styles.googleIcon}>G</Text>
-                                    <Text style={styles.googleBtnText}>Google ile Kayıt</Text>
-                                  </>
-                            }
                         </TouchableOpacity>
 
                         {/* Giriş linki */}
