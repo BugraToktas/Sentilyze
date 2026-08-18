@@ -1,18 +1,33 @@
+/**
+ * use-auth.tsx — Sentilyze Auth Hook (Strapi JWT)
+ *
+ * Supabase Auth'un yerini Strapi'nin kendi JWT auth sistemi alıyor.
+ * - signIn  → POST /api/auth/local
+ * - signUp  → POST /api/auth/local/register
+ * - signOut → AsyncStorage'dan token sil
+ * - Google OAuth geçici olarak kaldırıldı (Strapi tarafında konfigürasyon gerektirir)
+ */
+
 import { createContext, useContext, useEffect, useState } from 'react';
-import type { Session, User } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import {
+    strapiSignIn,
+    strapiSignUp,
+    strapiSignOut,
+    strapiGetMe,
+    getToken,
+    type StrapiUser,
+} from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Tip tanımları
 // ---------------------------------------------------------------------------
 interface AuthContextType {
-    session:     Session | null;
-    user:        User | null;
-    isLoading:   boolean;
-    signIn:      (email: string, password: string) => Promise<{ error: string | null }>;
-    signUp:      (email: string, password: string, displayName?: string) => Promise<{ error: string | null }>;
-    signInGoogle: () => Promise<{ error: string | null }>;
-    signOut:     () => Promise<void>;
+    user:      StrapiUser | null;
+    jwt:       string | null;
+    isLoading: boolean;
+    signIn:    (email: string, password: string) => Promise<{ error: string | null }>;
+    signUp:    (email: string, password: string, displayName?: string) => Promise<{ error: string | null }>;
+    signOut:   () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -24,37 +39,37 @@ const AuthContext = createContext<AuthContextType | null>(null);
 // Provider
 // ---------------------------------------------------------------------------
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const [session, setSession]   = useState<Session | null>(null);
+    const [user, setUser]         = useState<StrapiUser | null>(null);
+    const [jwt, setJwt]           = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        // İlk açılışta mevcut session'ı al
-        supabase.auth.getSession()
-            .then(({ data }) => {
-                setSession(data.session);
+        // Uygulama açılışında mevcut token'dan kullanıcıyı geri yükle
+        (async () => {
+            try {
+                const token = await getToken();
+                if (token) {
+                    setJwt(token);
+                    const me = await strapiGetMe();
+                    setUser(me);
+                }
+            } catch (err) {
+                console.error('[useAuth] Token restore hatası:', err);
+            } finally {
                 setIsLoading(false);
-            })
-            .catch((err) => {
-                console.error('[useAuth] getSession hatası:', err);
-                setIsLoading(false);
-            });
-
-        // Auth durumu değişimlerini dinle (login/logout)
-        const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-            setSession(newSession);
-            setIsLoading(false);
-        });
-
-        return () => {
-            listener.subscription.unsubscribe();
-        };
+            }
+        })();
     }, []);
 
     // --- Fonksiyonlar ---
 
     const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        return { error: error?.message ?? null };
+        const { user: u, jwt: token, error } = await strapiSignIn(email, password);
+        if (u && token) {
+            setUser(u);
+            setJwt(token);
+        }
+        return { error };
     };
 
     const signUp = async (
@@ -62,44 +77,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password: string,
         displayName?: string
     ): Promise<{ error: string | null }> => {
-        const { error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: { display_name: displayName ?? email.split('@')[0] },
-            },
-        });
-        return { error: error?.message ?? null };
-    };
-
-    const signInGoogle = async (): Promise<{ error: string | null }> => {
-        // OAuth için Supabase Dashboard'da Google provider'ı aktif etmek gerekiyor
-        // Native: "frontend://auth/callback", Web: window.location.origin + "/auth/callback"
-        const redirectTo =
-            typeof window !== 'undefined'
-                ? `${window.location.origin}/auth/callback`
-                : 'trisential://auth/callback';
-
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: { redirectTo },
-        });
-        return { error: error?.message ?? null };
+        // Strapi'de username zorunlu; displayName yoksa email prefix kullan
+        const username = displayName ?? email.split('@')[0];
+        const { user: u, jwt: token, error } = await strapiSignUp(username, email, password);
+        if (u && token) {
+            setUser(u);
+            setJwt(token);
+        }
+        return { error };
     };
 
     const signOut = async () => {
-        await supabase.auth.signOut();
+        await strapiSignOut();
+        setUser(null);
+        setJwt(null);
     };
 
     return (
         <AuthContext.Provider
             value={{
-                session,
-                user: session?.user ?? null,
+                user,
+                jwt,
                 isLoading,
                 signIn,
                 signUp,
-                signInGoogle,
                 signOut,
             }}
         >

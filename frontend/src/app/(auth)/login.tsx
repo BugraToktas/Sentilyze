@@ -9,7 +9,6 @@ import {
     KeyboardAvoidingView,
     Platform,
     ScrollView,
-    Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
@@ -17,13 +16,12 @@ import { useAuth } from '@/hooks/use-auth';
 import { Brand } from '@/constants/theme';
 
 export default function LoginScreen() {
-    const { signIn, signInGoogle } = useAuth();
+    const { signIn } = useAuth();
     const router = useRouter();
 
     const [email,       setEmail]       = useState('');
     const [password,    setPassword]    = useState('');
     const [loading,     setLoading]     = useState(false);
-    const [googleLoad,  setGoogleLoad]  = useState(false);
     const [focusField,  setFocusField]  = useState<'email' | 'password' | null>(null);
     const [error,       setError]       = useState<string | null>(null);
 
@@ -45,13 +43,6 @@ export default function LoginScreen() {
         }
     };
 
-    // --- Google OAuth ---
-    const handleGoogle = async () => {
-        setGoogleLoad(true);
-        const { error: err } = await signInGoogle();
-        setGoogleLoad(false);
-        if (err) Alert.alert('Google Girişi', err);
-    };
 
     return (
         <View style={styles.root}>
@@ -159,29 +150,6 @@ export default function LoginScreen() {
                                     : <Text style={styles.primaryBtnText}>Giriş Yap</Text>
                                 }
                             </LinearGradient>
-                        </TouchableOpacity>
-
-                        {/* Ayırıcı */}
-                        <View style={styles.divider}>
-                            <View style={styles.dividerLine} />
-                            <Text style={styles.dividerText}>veya</Text>
-                            <View style={styles.dividerLine} />
-                        </View>
-
-                        {/* Google butonu */}
-                        <TouchableOpacity
-                            onPress={handleGoogle}
-                            disabled={googleLoad}
-                            activeOpacity={0.85}
-                            style={styles.googleBtn}
-                        >
-                            {googleLoad
-                                ? <ActivityIndicator color="#fff" size="small" />
-                                : <>
-                                    <Text style={styles.googleIcon}>G</Text>
-                                    <Text style={styles.googleBtnText}>Google ile Giriş</Text>
-                                  </>
-                            }
                         </TouchableOpacity>
 
                         {/* Kayıt ol linki */}

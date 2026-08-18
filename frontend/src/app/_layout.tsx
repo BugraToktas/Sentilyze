@@ -1,5 +1,4 @@
-// react-native-url-polyfill'i EN BAŞTA import et (Supabase URL parsing için şart)
-import 'react-native-url-polyfill/auto';
+// Uygulama root layoutı
 
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -14,7 +13,7 @@ SplashScreen.preventAutoHideAsync();
 // Auth Guard — session durumuna göre kullanıcıyı yönlendirir
 // ---------------------------------------------------------------------------
 function AuthGuard() {
-    const { session, isLoading } = useAuth();
+    const { user, isLoading } = useAuth();
     const segments = useSegments();
     const router   = useRouter();
 
@@ -27,14 +26,14 @@ function AuthGuard() {
         const inAuthGroup = segments[0] === '(auth)';
         const inAppGroup  = segments[0] === '(app)';
 
-        if (!session && !inAuthGroup) {
+        if (!user && !inAuthGroup) {
             // Oturum yok → Login'e gönder
             router.replace('/(auth)/login');
-        } else if (session && !inAppGroup) {
+        } else if (user && !inAppGroup) {
             // Oturum var → Dashboard'a gönder
             router.replace('/(app)/dashboard');
         }
-    }, [session, isLoading]);   // segments'i bağımlılıktan çıkardık — sonsuz döngüyü önler
+    }, [user, isLoading]);   // segments'i bağımlılıktan çıkardık — sonsuz döngüyü önler
 
     return null;
 }
