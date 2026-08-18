@@ -14,7 +14,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { supabase } from '@/lib/supabase';
+import { apiPost } from '@/lib/api-client';
 import type { DataPoint } from '@/components/EmotionLineChart';
 
 const BASE_URL =
@@ -34,7 +34,7 @@ export type LiveStatus = 'idle' | 'starting' | 'live' | 'stopped' | 'error';
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 export function useLiveStream() {
-    const { session } = useAuth();
+    const { user, jwt } = useAuth();
 
     const [status, setStatus]               = useState<LiveStatus>('idle');
     const [sessionInfo, setSessionInfo]     = useState<SessionInfo | null>(null);
@@ -60,8 +60,8 @@ export function useLiveStream() {
                     'Accept': 'text/event-stream',
                     'Cache-Control': 'no-cache',
                 };
-                if (session?.access_token) {
-                    headers['Authorization'] = `Bearer ${session.access_token}`;
+                if (jwt) {
+                    headers['Authorization'] = `Bearer ${jwt}`;
                 }
 
                 const res = await fetch(url, {
@@ -160,7 +160,7 @@ export function useLiveStream() {
                                                 setTotalMessages(parsed.total_messages);
                                                 totalMessagesRef.current = parsed.total_messages;
                                             }
-                                            // Supabase'e kaydet
+                                            // Strapi'ye kaydet
                                             if (sessionInfoRef.current) {
                                                 saveLiveSession(
                                                     sessionInfoRef.current,
@@ -187,15 +187,15 @@ export function useLiveStream() {
         })();
 
         eventSourceRef.current = { close: () => controller.abort() } as unknown as EventSource;
-    }, [session]);
+    }, [jwt]);
 
-    // ── Supabase'e live session kaydet ───────────────────────────────────────
+    // ── Strapi'ye live session kaydet ──────────────────────────────────────
     const saveLiveSession = useCallback(async (
         info: SessionInfo,
         pts: DataPoint[],
         msgCount: number,
     ) => {
-        if (!session?.user?.id) return;
+        if (!user?.id) return;
         try {
             // Baskın duyguyu hesapla
             const emotionTotals: Record<string, number> = {};
@@ -209,25 +209,26 @@ export function useLiveStream() {
                 : null;
             const lastBucket = pts.length > 0 ? pts[pts.length - 1].bucket_sec : 0;
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await (supabase.from('live_sessions') as any).insert({
-                user_id:          session.user.id,
-                platform:         'youtube',
-                video_id:         info.video_id,
-                video_title:      info.video_title,
-                channel_name:     info.channel,
-                stream_url:       `https://www.youtube.com/watch?v=${info.video_id}`,
-                total_messages:   msgCount,
-                total_buckets:    pts.length,
-                peak_emotion:     peakEmotion,
-                duration_secs:    lastBucket + 10,
-                emotions_timeline: pts,
-                ended_at:         new Date().toISOString(),
+            await apiPost('/api/live-sessions', {
+                data: {
+                    user_id:           user.id,
+                    platform:          'youtube',
+                    video_id:          info.video_id,
+                    video_title:       info.video_title,
+                    channel_name:      info.channel,
+                    stream_url:        `https://www.youtube.com/watch?v=${info.video_id}`,
+                    total_messages:    msgCount,
+                    total_buckets:     pts.length,
+                    peak_emotion:      peakEmotion,
+                    duration_secs:     lastBucket + 10,
+                    emotions_timeline: pts,
+                    ended_at:          new Date().toISOString(),
+                },
             });
         } catch (e) {
-            console.warn('[LiveStream] Supabase kayıt hatası:', e);
+            console.warn('[LiveStream] Strapi kayıt hatası:', e);
         }
-    }, [session]);
+    }, [user]);
 
     // ── Analizi Başlat ───────────────────────────────────────────────────────
     const start = useCallback(async (youtubeUrl: string) => {
@@ -242,8 +243,8 @@ export function useLiveStream() {
             const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
             };
-            if (session?.access_token) {
-                headers['Authorization'] = `Bearer ${session.access_token}`;
+            if (jwt) {
+                headers['Authorization'] = `Bearer ${jwt}`;
             }
 
             const res = await fetch(`${BASE_URL}/api/v1/live/youtube/start`, {
@@ -271,7 +272,7 @@ export function useLiveStream() {
             setError((err as Error)?.message ?? 'Bağlantı kurulamadı');
             setStatus('error');
         }
-    }, [session, connectSSE]);
+    }, [jwt, connectSSE]);
 
     // ── Analizi Durdur ───────────────────────────────────────────────────────
     const stop = useCallback(async () => {
@@ -285,7 +286,7 @@ export function useLiveStream() {
             return;
         }
 
-        // Kullanıcı manuel durdurduysa Supabase'e kaydet
+        // Kullanıcı manuel durdurduysa Strapi'ye kaydet
         if (info) {
             saveLiveSession(info, dataPointsRef.current, totalMessagesRef.current);
         }
@@ -293,8 +294,8 @@ export function useLiveStream() {
         try {
             await fetch(`${BASE_URL}/api/v1/live/youtube/stop/${sid}`, {
                 method: 'DELETE',
-                headers: session?.access_token
-                    ? { 'Authorization': `Bearer ${session.access_token}` }
+                headers: jwt
+                    ? { 'Authorization': `Bearer ${jwt}` }
                     : {},
             });
         } catch {
@@ -303,7 +304,7 @@ export function useLiveStream() {
 
         setStatus('stopped');
         sessionIdRef.current = null;
-    }, [session]);
+    }, [jwt]);
 
     // ── Sıfırla ─────────────────────────────────────────────────────────────
     const reset = useCallback(() => {

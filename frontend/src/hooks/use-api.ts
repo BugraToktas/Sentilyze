@@ -2,7 +2,7 @@
  * use-api.ts — Sentilyze Backend API Hook
  *
  * Backend URL'yi env'den okur; yoksa localhost fallback kullanır.
- * Supabase session token'ını Authorization header'a ekler.
+ * Strapi JWT token'ını Authorization header'a ekler.
  *
  * v2: Artık sabit 3 sınıf yerine dinamik emotion etiket sistemi kullanılır.
  * Model hangi etiket döndürürse döndürsün tip güvenliyle çalışır.
@@ -94,7 +94,7 @@ export interface YoutubeAnalysisResult {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useApi() {
-    const { session } = useAuth();
+    const { jwt } = useAuth();
 
     const post = useCallback(
         async <T>(path: string, body: unknown): Promise<{ data: T | null; error: string | null }> => {
@@ -102,8 +102,8 @@ export function useApi() {
                 const headers: Record<string, string> = {
                     'Content-Type': 'application/json',
                 };
-                if (session?.access_token) {
-                    headers['Authorization'] = `Bearer ${session.access_token}`;
+                if (jwt) {
+                    headers['Authorization'] = `Bearer ${jwt}`;
                 }
 
                 const res = await fetch(`${BASE_URL}${path}`, {
@@ -127,7 +127,7 @@ export function useApi() {
                 return { data: null, error: msg };
             }
         },
-        [session]
+        [jwt]
     );
 
     /** Tekil metin analizi */

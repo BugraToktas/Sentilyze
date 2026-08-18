@@ -4,7 +4,7 @@
  * 4 sekme:
  *   1. Analiz   → Manuel metin & toplu analiz
  *   2. YouTube  → YouTube URL analizi
- *   3. Geçmiş   → Supabase'den past analysis_jobs
+ *   3. Geçmiş   → Strapi'den past analysis_jobs
  *   4. Profil   → Kullanıcı bilgisi + çıkış
  *
  * v2: Artık sabit Olumlu/Olumsuz/Nötr yerine dinamik emotion sistemi
@@ -30,7 +30,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/hooks/use-auth';
 import { useApi, type SingleAnalysisResult, type YoutubeAnalysisResult } from '@/hooks/use-api';
 import { Brand, getEmotionMeta } from '@/constants/theme';
-import { supabase } from '@/lib/supabase';
+import { apiGet, apiPost } from '@/lib/api-client';
 import { useFocusEffect } from 'expo-router';
 import LiveScreen from '@/app/(app)/live';
 import EmotionLineChart from '@/components/EmotionLineChart';
@@ -188,29 +188,27 @@ export default function DashboardScreen() {
     const loadHistory = useCallback(async () => {
         setHistoryLoading(true);
 
-        // 1. analysis_jobs
-        const { data: jobs } = await supabase
-            .from('analysis_jobs')
-            .select(
-                'id, job_type, youtube_video_title, total_analyzed, emotions_summary, positive_count, negative_count, neutral_count, created_at'
-            )
-            .order('created_at', { ascending: false })
-            .limit(20);
+        // 1. analysis_jobs — Strapi REST
+        const { data: jobsRes } = await apiGet<{
+            data: Array<{ id: number; attributes: Omit<HistoryJob, 'id' | '_source'> }>;
+        }>('/api/analysis-jobs?sort=createdAt:desc&pagination[limit]=20&populate=*');
 
-        // 2. live_sessions
-        const { data: liveSessions } = await supabase
-            .from('live_sessions')
-            .select(
-                'id, platform, video_id, video_title, channel_name, total_messages, total_buckets, peak_emotion, duration_secs, emotions_timeline, created_at'
-            )
-            .order('created_at', { ascending: false })
-            .limit(10);
+        // 2. live_sessions — Strapi REST
+        const { data: liveRes } = await apiGet<{
+            data: Array<{ id: number; attributes: Omit<LiveHistoryJob, 'id' | '_source'> }>;
+        }>('/api/live-sessions?sort=createdAt:desc&pagination[limit]=10&populate=*');
 
-        // 3. Birleştir ve tarihe göre sırala
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const jobItems: HistoryJob[] = (jobs ?? []).map((j: any) => ({ ...j, _source: 'job' as const }));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const liveItems: LiveHistoryJob[] = (liveSessions ?? []).map((l: any) => ({ ...l, _source: 'live' as const }));
+        // 3. Strapi response formatını düz objeye çevir
+        const jobItems: HistoryJob[] = (jobsRes?.data ?? []).map((j) => ({
+            ...j.attributes,
+            id: String(j.id),
+            _source: 'job' as const,
+        }));
+        const liveItems: LiveHistoryJob[] = (liveRes?.data ?? []).map((l) => ({
+            ...l.attributes,
+            id: String(l.id),
+            _source: 'live' as const,
+        }));
         const merged = [...jobItems, ...liveItems].sort(
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
@@ -319,7 +317,7 @@ export default function DashboardScreen() {
         }
     };
 
-    // ── Supabase kayıt ──
+    // ── Strapi kaydet ──
     const saveJob = async (
         type: string,
         _ms: number,
@@ -334,21 +332,22 @@ export default function DashboardScreen() {
     ) => {
         if (!user) return;
         try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await (supabase.from('analysis_jobs') as any).insert({
-                user_id: user.id,
-                job_type: type,
-                status: 'completed',
-                total_analyzed: counts.total,
-                emotions_summary: counts.emotionsSummary,   // JSONB — dinamik
-                // Geriye dönük uyumluluk (eski model çalışıyorsa doldur)
-                positive_count: counts.emotionsSummary['Olumlu'] ?? counts.emotionsSummary['joy'] ?? 0,
-                negative_count: counts.emotionsSummary['Olumsuz'] ?? counts.emotionsSummary['anger'] ?? 0,
-                neutral_count: counts.emotionsSummary['Nötr'] ?? counts.emotionsSummary['neutral'] ?? 0,
-                youtube_url: counts.youtube_url ?? null,
-                youtube_video_title: counts.youtube_video_title ?? null,
-                youtube_video_id: counts.youtube_video_id ?? null,
-                youtube_channel_name: counts.youtube_channel_name ?? null,
+            await apiPost('/api/analysis-jobs', {
+                data: {
+                    user_id:             user.id,
+                    job_type:            type,
+                    status:              'completed',
+                    total_analyzed:      counts.total,
+                    emotions_summary:    counts.emotionsSummary,
+                    // Geriye dönük uyumluluk
+                    positive_count: counts.emotionsSummary['Olumlu'] ?? counts.emotionsSummary['joy'] ?? 0,
+                    negative_count: counts.emotionsSummary['Olumsuz'] ?? counts.emotionsSummary['anger'] ?? 0,
+                    neutral_count:  counts.emotionsSummary['Nötr'] ?? counts.emotionsSummary['neutral'] ?? 0,
+                    youtube_url:         counts.youtube_url ?? null,
+                    youtube_video_title: counts.youtube_video_title ?? null,
+                    youtube_video_id:    counts.youtube_video_id ?? null,
+                    youtube_channel_name: counts.youtube_channel_name ?? null,
+                },
             });
         } catch {/* sessiz hata */ }
     };
