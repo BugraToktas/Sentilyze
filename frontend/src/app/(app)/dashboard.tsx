@@ -381,7 +381,7 @@ export default function DashboardScreen() {
                     <View>
                         <Text style={s.headerGreeting}>Hoş geldin 👋</Text>
                         <Text style={s.headerName} numberOfLines={1}>
-                            {user?.user_metadata?.display_name ?? user?.email?.split('@')[0] ?? 'Kullanıcı'}
+                            {user?.username ?? user?.email?.split('@')[0] ?? 'Kullanıcı'}
                         </Text>
                     </View>
                 </View>
