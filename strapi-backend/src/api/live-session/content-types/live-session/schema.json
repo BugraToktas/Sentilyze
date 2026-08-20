@@ -1,0 +1,42 @@
+{
+  "kind": "collectionType",
+  "collectionName": "live_sessions",
+  "info": {
+    "singularName": "live-session",
+    "pluralName": "live-sessions",
+    "displayName": "Live Session"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "platform": {
+      "type": "string"
+    },
+    "video_id": {
+      "type": "string"
+    },
+    "video_title": {
+      "type": "string"
+    },
+    "channel_name": {
+      "type": "string"
+    },
+    "total_messages": {
+      "type": "integer"
+    },
+    "total_buckets": {
+      "type": "integer"
+    },
+    "peak_emotion": {
+      "type": "string"
+    },
+    "duration_secs": {
+      "type": "integer"
+    },
+    "emotions_timeline": {
+      "type": "json"
+    }
+  }
+}

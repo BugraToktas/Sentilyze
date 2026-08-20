@@ -76,7 +76,8 @@ async function request<T>(
             headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const res = await fetch(`${STRAPI_URL}${path}`, {
+        const fullUrl = `${STRAPI_URL}${path}`;
+        const res = await fetch(fullUrl, {
             ...options,
             headers,
         });
@@ -149,6 +150,9 @@ export async function strapiSignIn(
     identifier: string,
     password: string
 ): Promise<{ user: StrapiUser | null; jwt: string | null; error: string | null }> {
+    // Eski / süresi dolmuş token varsa sil — login isteğine eklenmemeli
+    await removeToken();
+
     const { data, error } = await apiPost<StrapiAuthResponse>('/api/auth/local', {
         identifier,
         password,

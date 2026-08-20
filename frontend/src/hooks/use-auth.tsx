@@ -15,6 +15,7 @@ import {
     strapiSignOut,
     strapiGetMe,
     getToken,
+    removeToken,
     type StrapiUser,
 } from '@/lib/api-client';
 
@@ -49,9 +50,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             try {
                 const token = await getToken();
                 if (token) {
-                    setJwt(token);
                     const me = await strapiGetMe();
-                    setUser(me);
+                    if (me) {
+                        // Token geçerli
+                        setJwt(token);
+                        setUser(me);
+                    } else {
+                        // Token süres i dolmuş / geçersiz — temizle
+                        await removeToken();
+                    }
                 }
             } catch (err) {
                 console.error('[useAuth] Token restore hatası:', err);

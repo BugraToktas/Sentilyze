@@ -188,27 +188,67 @@ export default function DashboardScreen() {
     const loadHistory = useCallback(async () => {
         setHistoryLoading(true);
 
-        // 1. analysis_jobs — Strapi REST
+        // 1. analysis_jobs — Strapi REST (v5 flat format)
         const { data: jobsRes } = await apiGet<{
-            data: Array<{ id: number; attributes: Omit<HistoryJob, 'id' | '_source'> }>;
-        }>('/api/analysis-jobs?sort=createdAt:desc&pagination[limit]=20&populate=*');
+            data: Array<{
+                id: number;
+                job_type: string;
+                job_status: string;
+                total_analyzed: number;
+                emotions_summary: Record<string, number> | null;
+                positive_count: number;
+                negative_count: number;
+                neutral_count: number;
+                youtube_video_title: string | null;
+                createdAt: string;
+            }>;
+        }>('/api/analysis-jobs?sort=createdAt:desc&pagination[limit]=20');
 
-        // 2. live_sessions — Strapi REST
+        // 2. live_sessions — Strapi REST (v5 flat format)
         const { data: liveRes } = await apiGet<{
-            data: Array<{ id: number; attributes: Omit<LiveHistoryJob, 'id' | '_source'> }>;
-        }>('/api/live-sessions?sort=createdAt:desc&pagination[limit]=10&populate=*');
+            data: Array<{
+                id: number;
+                platform: string;
+                video_id: string | null;
+                video_title: string | null;
+                channel_name: string | null;
+                total_messages: number;
+                total_buckets: number;
+                peak_emotion: string | null;
+                duration_secs: number | null;
+                emotions_timeline: LiveHistoryJob['emotions_timeline'];
+                createdAt: string;
+            }>;
+        }>('/api/live-sessions?sort=createdAt:desc&pagination[limit]=10');
 
-        // 3. Strapi response formatını düz objeye çevir
+        // 3. Strapi v5 flat format — attributes yok, doğrudan alanlar
         const jobItems: HistoryJob[] = (jobsRes?.data ?? []).map((j) => ({
-            ...j.attributes,
             id: String(j.id),
+            job_type: j.job_type,
+            youtube_video_title: j.youtube_video_title ?? null,
+            total_analyzed: j.total_analyzed,
+            emotions_summary: j.emotions_summary ?? null,
+            positive_count: j.positive_count,
+            negative_count: j.negative_count,
+            neutral_count: j.neutral_count,
+            created_at: j.createdAt, // v5: camelCase
             _source: 'job' as const,
         }));
         const liveItems: LiveHistoryJob[] = (liveRes?.data ?? []).map((l) => ({
-            ...l.attributes,
             id: String(l.id),
+            platform: l.platform,
+            video_id: l.video_id ?? null,
+            video_title: l.video_title ?? null,
+            channel_name: l.channel_name ?? null,
+            total_messages: l.total_messages,
+            total_buckets: l.total_buckets,
+            peak_emotion: l.peak_emotion ?? null,
+            duration_secs: l.duration_secs ?? null,
+            emotions_timeline: l.emotions_timeline ?? null,
+            created_at: l.createdAt, // v5: camelCase
             _source: 'live' as const,
         }));
+
         const merged = [...jobItems, ...liveItems].sort(
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
@@ -332,14 +372,12 @@ export default function DashboardScreen() {
     ) => {
         if (!user) return;
         try {
-            await apiPost('/api/analysis-jobs', {
+            const { error } = await apiPost('/api/analysis-jobs', {
                 data: {
-                    user_id:             user.id,
                     job_type:            type,
-                    status:              'completed',
+                    job_status:          'completed',  // 'status' Strapi'de rezerve — job_status kullan
                     total_analyzed:      counts.total,
                     emotions_summary:    counts.emotionsSummary,
-                    // Geriye dönük uyumluluk
                     positive_count: counts.emotionsSummary['Olumlu'] ?? counts.emotionsSummary['joy'] ?? 0,
                     negative_count: counts.emotionsSummary['Olumsuz'] ?? counts.emotionsSummary['anger'] ?? 0,
                     neutral_count:  counts.emotionsSummary['Nötr'] ?? counts.emotionsSummary['neutral'] ?? 0,
@@ -349,7 +387,10 @@ export default function DashboardScreen() {
                     youtube_channel_name: counts.youtube_channel_name ?? null,
                 },
             });
-        } catch {/* sessiz hata */ }
+            if (error) console.warn('[saveJob] Kayıt hatası:', error);
+        } catch (e) {
+            console.warn('[saveJob] Beklenmeyen hata:', e);
+        }
     };
 
     // ───────────────────────────────────────────────────────────────────────

@@ -25,7 +25,9 @@ const deniedExecutableTypes = [
 const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Plugin => ({
   'users-permissions': {
     config: {
-      jwtManagement: 'refresh',
+      jwt: {
+        expiresIn: '7d', // Geliştirme ortamı için 7 gün (prod'da daha kısa önerilir)
+      },
       sessions: {
         httpOnly: true,
       },

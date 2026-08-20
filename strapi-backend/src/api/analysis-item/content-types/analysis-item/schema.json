@@ -1,0 +1,33 @@
+{
+  "kind": "collectionType",
+  "collectionName": "analysis_items",
+  "info": {
+    "singularName": "analysis-item",
+    "pluralName": "analysis-items",
+    "displayName": "Analysis Item"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "analyzed_text": {
+      "type": "text"
+    },
+    "sentiment_label": {
+      "type": "string"
+    },
+    "confidence_score": {
+      "type": "decimal"
+    },
+    "emotion_scores": {
+      "type": "json"
+    },
+    "youtube_author": {
+      "type": "string"
+    },
+    "youtube_like_count": {
+      "type": "integer"
+    }
+  }
+}
