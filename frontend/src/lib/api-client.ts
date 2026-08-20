@@ -4,12 +4,12 @@
  * Supabase client'ın yerini alır.
  * - JWT token'ı AsyncStorage'da saklar
  * - Her isteğe Authorization header ekler
- * - Strapi REST API convention'larını takip eder
+ * - Strapi v5 REST API düz (flat) response formatı
  *
- * Strapi v4 response formatı:
- *   { data: { id, attributes: {...} }, meta: {...} }
+ * Strapi v5 response formatı:
+ *   { data: { id, documentId, ...fields }, meta: {} }
  * Liste:
- *   { data: [{ id, attributes: {...} }], meta: { pagination: {...} } }
+ *   { data: [{ id, documentId, ...fields }], meta: { pagination: {...} } }
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,14 +19,43 @@ const STRAPI_URL =
 
 const TOKEN_KEY = 'sentilyze_jwt';
 
-// ─── Token yönetimi ─────────────────────────────────────────────────────────
+// ─── JWT süre kontrolü (network olmadan, local) ─────────────────────────────────
+
+/** JWT payload'ı decode et (base64 — verify yok, sadece okuma) */
+function decodeJwtPayload(token: string): { exp?: number } | null {
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        const payload = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+        return JSON.parse(payload) as { exp?: number };
+    } catch {
+        return null;
+    }
+}
+
+/** Token süresi dolmuş mu? (60 sn öncesinden itibaren geçersiz say) */
+export function isTokenExpired(token: string): boolean {
+    const payload = decodeJwtPayload(token);
+    if (!payload?.exp) return true;
+    const nowSec = Math.floor(Date.now() / 1000);
+    return nowSec >= payload.exp - 60; // 60 sn erken geçersiz say
+}
+
+// ─── Token yönetimi ────────────────────────────────────────────────────────────────────────────────
 
 export async function saveToken(token: string): Promise<void> {
     await AsyncStorage.setItem(TOKEN_KEY, token);
 }
 
+/** Token'ı al; eğer süresi dolmuşsa otomatik sil ve null döndür */
 export async function getToken(): Promise<string | null> {
-    return AsyncStorage.getItem(TOKEN_KEY);
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
+    if (!token) return null;
+    if (isTokenExpired(token)) {
+        await AsyncStorage.removeItem(TOKEN_KEY);
+        return null;
+    }
+    return token;
 }
 
 export async function removeToken(): Promise<void> {

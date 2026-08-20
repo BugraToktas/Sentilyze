@@ -452,7 +452,7 @@ export interface ApiAnalysisItemAnalysisItem
     singularName: 'analysis-item';
   };
   options: {
-    draftAndPublish: true;
+    draftAndPublish: false;
   };
   attributes: {
     analyzed_text: Schema.Attribute.Text;
@@ -485,7 +485,7 @@ export interface ApiAnalysisJobAnalysisJob extends Struct.CollectionTypeSchema {
     singularName: 'analysis-job';
   };
   options: {
-    draftAndPublish: true;
+    draftAndPublish: false;
   };
   attributes: {
     createdAt: Schema.Attribute.DateTime;
@@ -522,7 +522,7 @@ export interface ApiLiveSessionLiveSession extends Struct.CollectionTypeSchema {
     singularName: 'live-session';
   };
   options: {
-    draftAndPublish: true;
+    draftAndPublish: false;
   };
   attributes: {
     channel_name: Schema.Attribute.String;
