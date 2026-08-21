@@ -508,8 +508,10 @@ export interface ApiAnalysisJobAnalysisJob extends Struct.CollectionTypeSchema {
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
+    user_id: Schema.Attribute.Integer;
     youtube_channel_name: Schema.Attribute.String;
     youtube_url: Schema.Attribute.String;
+    youtube_video_id: Schema.Attribute.String;
     youtube_video_title: Schema.Attribute.String;
   };
 }
@@ -545,6 +547,7 @@ export interface ApiLiveSessionLiveSession extends Struct.CollectionTypeSchema {
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
+    user_id: Schema.Attribute.Integer;
     video_id: Schema.Attribute.String;
     video_title: Schema.Attribute.String;
   };

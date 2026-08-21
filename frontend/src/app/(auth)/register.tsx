@@ -1,24 +1,32 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     View,
     Text,
     TextInput,
     TouchableOpacity,
     StyleSheet,
-    ActivityIndicator,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
     Alert,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+    useSharedValue,
+    withSpring,
+    useAnimatedStyle,
+} from 'react-native-reanimated';
 import { Link, useRouter } from 'expo-router';
 import { useAuth } from '@/hooks/use-auth';
-import { Brand } from '@/constants/theme';
+import { Brand, Spring, UI, Fonts } from '@/constants/theme';
+import MeshBackground from '@/components/ui/MeshBackground';
+import GlassCard from '@/components/ui/GlassCard';
+import SpringButton from '@/components/ui/SpringButton';
+import SentilyzeIcon from '@/components/ui/SentilyzeIcon';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function RegisterScreen() {
     const { signUp } = useAuth();
-    const router = useRouter();
+    const router     = useRouter();
 
     const [displayName, setDisplayName] = useState('');
     const [email,       setEmail]       = useState('');
@@ -27,6 +35,20 @@ export default function RegisterScreen() {
     const [loading,     setLoading]     = useState(false);
     const [focusField,  setFocusField]  = useState<string | null>(null);
     const [error,       setError]       = useState<string | null>(null);
+
+    // Giriş animasyonu
+    const cardY  = useSharedValue(40);
+    const cardOp = useSharedValue(0);
+
+    useEffect(() => {
+        cardY.value  = withSpring(0, Spring.smooth);
+        cardOp.value = withSpring(1, Spring.smooth);
+    }, []);
+
+    const cardStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: cardY.value }],
+        opacity:   cardOp.value,
+    }));
 
     const validate = (): string | null => {
         if (!displayName.trim()) return 'İsim boş olamaz.';
@@ -49,13 +71,12 @@ export default function RegisterScreen() {
             setError(err);
         } else {
             Alert.alert(
-                'Hesap Oluşturuldu! 🎉',
+                'Hesap Oluşturuldu!',
                 'Hesabın hazır. Giriş yapabilirsin.',
-                [{ text: 'Tamam', onPress: () => router.replace('/(auth)/login') }]
+                [{ text: 'Tamam', onPress: () => router.replace('/(auth)/login') }],
             );
         }
     };
-
 
     const inputStyle = (field: string) => [
         styles.input,
@@ -64,13 +85,7 @@ export default function RegisterScreen() {
 
     return (
         <View style={styles.root}>
-            <LinearGradient
-                colors={['#0A0F1F', '#120B20', '#0A0A0F']}
-                locations={[0, 0.5, 1]}
-                style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.glowTop} />
-            <View style={styles.glowBottom} />
+            <MeshBackground />
 
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -82,127 +97,119 @@ export default function RegisterScreen() {
                     showsVerticalScrollIndicator={false}
                 >
                     {/* Logo */}
-                    <View style={styles.logoArea}>
-                        <LinearGradient
-                            colors={Brand.gradientPrimary}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.logoGradient}
-                        >
-                            <Text style={styles.logoIcon}>✦</Text>
-                        </LinearGradient>
-                        <Text style={styles.appName}>Sentilyze</Text>
-                        <Text style={styles.tagline}>Duygu Analitiği Platformu</Text>
-                    </View>
-
-                    {/* Kart */}
-                    <View style={styles.card}>
-                        <Text style={styles.cardTitle}>Hesap Oluştur</Text>
-
-                        {error && (
-                            <View style={styles.errorBox}>
-                                <Text style={styles.errorText}>⚠ {error}</Text>
-                            </View>
-                        )}
-
-                        {/* İsim */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>İsim</Text>
-                            <TextInput
-                                style={inputStyle('name')}
-                                placeholder="Adın Soyadın"
-                                placeholderTextColor="rgba(255,255,255,0.25)"
-                                value={displayName}
-                                onChangeText={setDisplayName}
-                                onFocus={() => setFocusField('name')}
-                                onBlur={() => setFocusField(null)}
-                                autoCapitalize="words"
-                                autoComplete="name"
-                                selectionColor={Brand.primaryLight}
-                            />
-                        </View>
-
-                        {/* Email */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>Email</Text>
-                            <TextInput
-                                style={inputStyle('email')}
-                                placeholder="ornek@email.com"
-                                placeholderTextColor="rgba(255,255,255,0.25)"
-                                value={email}
-                                onChangeText={setEmail}
-                                onFocus={() => setFocusField('email')}
-                                onBlur={() => setFocusField(null)}
-                                autoCapitalize="none"
-                                keyboardType="email-address"
-                                autoComplete="email"
-                                selectionColor={Brand.primaryLight}
-                            />
-                        </View>
-
-                        {/* Şifre */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>Şifre</Text>
-                            <TextInput
-                                style={inputStyle('password')}
-                                placeholder="En az 6 karakter"
-                                placeholderTextColor="rgba(255,255,255,0.25)"
-                                value={password}
-                                onChangeText={setPassword}
-                                onFocus={() => setFocusField('password')}
-                                onBlur={() => setFocusField(null)}
-                                secureTextEntry
-                                autoComplete="new-password"
-                                selectionColor={Brand.primaryLight}
-                            />
-                        </View>
-
-                        {/* Şifre Onayla */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>Şifre Onayla</Text>
-                            <TextInput
-                                style={inputStyle('confirm')}
-                                placeholder="••••••••"
-                                placeholderTextColor="rgba(255,255,255,0.25)"
-                                value={confirm}
-                                onChangeText={setConfirm}
-                                onFocus={() => setFocusField('confirm')}
-                                onBlur={() => setFocusField(null)}
-                                secureTextEntry
-                                selectionColor={Brand.primaryLight}
-                            />
-                        </View>
-
-                        {/* Kayıt butonu */}
-                        <TouchableOpacity
-                            onPress={handleSignUp}
-                            disabled={loading}
-                            activeOpacity={0.85}
-                            style={styles.primaryBtnWrapper}
-                        >
+                    <Animated.View style={[styles.logoArea, cardStyle]}>
+                        <View style={styles.logoWrap}>
                             <LinearGradient
                                 colors={Brand.gradientPrimary}
                                 start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                                style={styles.primaryBtn}
+                                end={{ x: 1, y: 1 }}
+                                style={styles.logoGradient}
                             >
-                                {loading
-                                    ? <ActivityIndicator color="#fff" size="small" />
-                                    : <Text style={styles.primaryBtnText}>Hesap Oluştur</Text>
-                                }
+                                <SentilyzeIcon size={30} color1="#fff" color2="rgba(255,255,255,0.8)" />
                             </LinearGradient>
-                        </TouchableOpacity>
-
-                        {/* Giriş linki */}
-                        <View style={styles.footer}>
-                            <Text style={styles.footerText}>Zaten hesabın var mı? </Text>
-                            <Link href="/(auth)/login" asChild>
-                                <TouchableOpacity>
-                                    <Text style={styles.footerLink}>Giriş Yap</Text>
-                                </TouchableOpacity>
-                            </Link>
                         </View>
-                    </View>
+                        <Text style={styles.appName}>Sentilyze</Text>
+                        <Text style={styles.tagline}>Duygu Analitiği Platformu</Text>
+                    </Animated.View>
+
+                    {/* Glass kart */}
+                    <Animated.View style={cardStyle}>
+                        <GlassCard variant="elevated" noPadding>
+                            <View style={styles.cardInner}>
+                                <Text style={styles.cardTitle}>Hesap Oluştur</Text>
+
+                                {error && (
+                                    <View style={styles.errorBox}>
+                                        <Text style={styles.errorText}>⚠ {error}</Text>
+                                    </View>
+                                )}
+
+                                {/* İsim */}
+                                <View style={styles.fieldGroup}>
+                                    <Text style={styles.label}>İsim</Text>
+                                    <TextInput
+                                        style={inputStyle('name')}
+                                        placeholder="Adın Soyadın"
+                                        placeholderTextColor="rgba(255,255,255,0.22)"
+                                        value={displayName}
+                                        onChangeText={setDisplayName}
+                                        onFocus={() => setFocusField('name')}
+                                        onBlur={() => setFocusField(null)}
+                                        autoCapitalize="words"
+                                        autoComplete="name"
+                                        selectionColor={Brand.primaryLight}
+                                    />
+                                </View>
+
+                                {/* Email */}
+                                <View style={styles.fieldGroup}>
+                                    <Text style={styles.label}>Email</Text>
+                                    <TextInput
+                                        style={inputStyle('email')}
+                                        placeholder="ornek@email.com"
+                                        placeholderTextColor="rgba(255,255,255,0.22)"
+                                        value={email}
+                                        onChangeText={setEmail}
+                                        onFocus={() => setFocusField('email')}
+                                        onBlur={() => setFocusField(null)}
+                                        autoCapitalize="none"
+                                        keyboardType="email-address"
+                                        autoComplete="email"
+                                        selectionColor={Brand.primaryLight}
+                                    />
+                                </View>
+
+                                {/* Şifre */}
+                                <View style={styles.fieldGroup}>
+                                    <Text style={styles.label}>Şifre</Text>
+                                    <TextInput
+                                        style={inputStyle('password')}
+                                        placeholder="En az 6 karakter"
+                                        placeholderTextColor="rgba(255,255,255,0.22)"
+                                        value={password}
+                                        onChangeText={setPassword}
+                                        onFocus={() => setFocusField('password')}
+                                        onBlur={() => setFocusField(null)}
+                                        secureTextEntry
+                                        autoComplete="new-password"
+                                        selectionColor={Brand.primaryLight}
+                                    />
+                                </View>
+
+                                {/* Şifre Onayla */}
+                                <View style={styles.fieldGroup}>
+                                    <Text style={styles.label}>Şifre Onayla</Text>
+                                    <TextInput
+                                        style={inputStyle('confirm')}
+                                        placeholder="••••••••"
+                                        placeholderTextColor="rgba(255,255,255,0.22)"
+                                        value={confirm}
+                                        onChangeText={setConfirm}
+                                        onFocus={() => setFocusField('confirm')}
+                                        onBlur={() => setFocusField(null)}
+                                        secureTextEntry
+                                        selectionColor={Brand.primaryLight}
+                                    />
+                                </View>
+
+                                <SpringButton
+                                    label="Hesap Oluştur"
+                                    onPress={handleSignUp}
+                                    loading={loading}
+                                    style={{ marginTop: 4 }}
+                                />
+
+                                <View style={styles.footer}>
+                                    <Text style={styles.footerText}>Zaten hesabın var mı? </Text>
+                                    <Link href="/(auth)/login" asChild>
+                                        <TouchableOpacity>
+                                            <Text style={styles.footerLink}>Giriş Yap</Text>
+                                        </TouchableOpacity>
+                                    </Link>
+                                </View>
+                            </View>
+                        </GlassCard>
+                    </Animated.View>
                 </ScrollView>
             </KeyboardAvoidingView>
         </View>
@@ -210,79 +217,107 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-    root:         { flex: 1, backgroundColor: '#0A0A0F' },
-    glowTop: {
-        position: 'absolute', top: -60, right: -60,
-        width: 280, height: 280, borderRadius: 140,
-        backgroundColor: 'rgba(37,99,235,0.15)',
-    },
-    glowBottom: {
-        position: 'absolute', bottom: -80, left: -80,
-        width: 320, height: 320, borderRadius: 160,
-        backgroundColor: 'rgba(124,58,237,0.15)',
+    root: {
+        flex:            1,
+        backgroundColor: UI.bg,
     },
     kav:    { flex: 1 },
     scroll: {
-        flexGrow: 1, justifyContent: 'center',
-        paddingHorizontal: 24, paddingVertical: 48,
+        flexGrow:          1,
+        justifyContent:    'center',
+        paddingHorizontal: 24,
+        paddingVertical:   48,
+        gap:               24,
     },
-    logoArea:     { alignItems: 'center', marginBottom: 32 },
-    logoGradient: {
-        width: 60, height: 60, borderRadius: 18,
-        alignItems: 'center', justifyContent: 'center', marginBottom: 10,
-        shadowColor: Brand.primary, shadowOpacity: 0.6,
-        shadowRadius: 18, shadowOffset: { width: 0, height: 6 },
-    },
-    logoIcon:  { fontSize: 26, color: '#fff' },
-    appName:   { fontSize: 26, fontWeight: '700', color: '#ffffff', letterSpacing: 0.5 },
-    tagline:   { fontSize: 13, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
 
-    card: {
-        backgroundColor: 'rgba(255,255,255,0.04)',
-        borderRadius: 24, borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
-        padding: 28, gap: 14,
+    logoArea: {
+        alignItems: 'center',
+        gap:        8,
     },
-    cardTitle: { fontSize: 20, fontWeight: '700', color: '#ffffff', marginBottom: 2 },
+    logoWrap: {
+        shadowColor:   Brand.primary,
+        shadowOpacity: 0.55,
+        shadowRadius:  24,
+        shadowOffset:  { width: 0, height: 8 },
+        elevation:     12,
+    },
+    logoGradient: {
+        width:          60,
+        height:         60,
+        borderRadius:   18,
+        alignItems:     'center',
+        justifyContent: 'center',
+    },
+    logoIcon: { fontSize: 26, color: '#fff' },
+    appName: {
+        fontSize:      28,
+        fontWeight:    '800',
+        color:         '#ffffff',
+        letterSpacing: 0.3,
+        fontFamily:    Fonts?.sansExtraBold ?? undefined,
+    },
+    tagline: {
+        fontSize:  13,
+        color:     'rgba(255,255,255,0.4)',
+        fontFamily: Fonts?.sans ?? undefined,
+    },
+
+    cardInner: { padding: 24, gap: 14 },
+    cardTitle: {
+        fontSize:   20,
+        fontWeight: '700',
+        color:      '#ffffff',
+        marginBottom: 2,
+        fontFamily: Fonts?.sansBold ?? undefined,
+    },
 
     errorBox: {
-        backgroundColor: 'rgba(239,68,68,0.12)', borderRadius: 10,
-        borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', padding: 12,
+        backgroundColor: 'rgba(239,68,68,0.10)',
+        borderRadius:    10,
+        borderWidth:     1,
+        borderColor:     'rgba(239,68,68,0.28)',
+        padding:         12,
     },
-    errorText: { color: '#FCA5A5', fontSize: 13 },
+    errorText: { color: '#FCA5A5', fontSize: 13, fontFamily: Fonts?.sans ?? undefined },
 
     fieldGroup: { gap: 6 },
-    label:      { fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: '500' },
+    label: {
+        fontSize:   13,
+        color:      'rgba(255,255,255,0.6)',
+        fontWeight: '500',
+        fontFamily: Fonts?.sansMedium ?? undefined,
+    },
     input: {
-        backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12,
-        borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-        color: '#ffffff', fontSize: 15,
-        paddingHorizontal: 16, paddingVertical: 14,
+        backgroundColor:  'rgba(255,255,255,0.05)',
+        borderRadius:     12,
+        borderWidth:      1,
+        borderColor:      UI.border,
+        color:            '#ffffff',
+        fontSize:         15,
+        paddingHorizontal: 16,
+        paddingVertical:   13,
+        fontFamily:       Fonts?.sans ?? undefined,
     },
-    inputFocused: { borderColor: Brand.primary, backgroundColor: 'rgba(124,58,237,0.08)' },
-
-    primaryBtnWrapper: {
-        borderRadius: 14, overflow: 'hidden',
-        shadowColor: Brand.primary, shadowOpacity: 0.5,
-        shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
-        elevation: 6, marginTop: 4,
+    inputFocused: {
+        borderColor:     UI.borderFocus,
+        backgroundColor: 'rgba(124,58,237,0.08)',
     },
-    primaryBtn:     { paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
-    primaryBtnText: { color: '#ffffff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
 
-    divider:     { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    dividerLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.1)' },
-    dividerText: { color: 'rgba(255,255,255,0.35)', fontSize: 12 },
-
-    googleBtn: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-        backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 14,
-        borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingVertical: 14,
+    footer: {
+        flexDirection:  'row',
+        justifyContent: 'center',
+        alignItems:     'center',
+        marginTop:      4,
     },
-    googleIcon:    { fontSize: 16, fontWeight: '800', color: '#ffffff' },
-    googleBtnText: { color: '#ffffff', fontSize: 15, fontWeight: '600' },
-
-    footer:     { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 4 },
-    footerText: { color: 'rgba(255,255,255,0.45)', fontSize: 14 },
-    footerLink: { color: Brand.primaryLight, fontSize: 14, fontWeight: '600' },
+    footerText: {
+        color:      'rgba(255,255,255,0.4)',
+        fontSize:   14,
+        fontFamily: Fonts?.sans ?? undefined,
+    },
+    footerLink: {
+        color:      Brand.primaryLight,
+        fontSize:   14,
+        fontWeight: '600',
+        fontFamily: Fonts?.sansSemiBold ?? undefined,
+    },
 });

@@ -37,6 +37,9 @@
     },
     "emotions_timeline": {
       "type": "json"
+    },
+    "user_id": {
+      "type": "integer"
     }
   }
 }

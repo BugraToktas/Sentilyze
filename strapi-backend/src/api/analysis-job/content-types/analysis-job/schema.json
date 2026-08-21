@@ -38,8 +38,14 @@
     "youtube_video_title": {
       "type": "string"
     },
+    "youtube_video_id": {
+      "type": "string"
+    },
     "youtube_channel_name": {
       "type": "string"
+    },
+    "user_id": {
+      "type": "integer"
     }
   }
 }

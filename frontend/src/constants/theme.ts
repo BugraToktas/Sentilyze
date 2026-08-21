@@ -10,6 +10,40 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+// ─── Premium Modern UI Token'ları ──────────────────────────────────────────
+// Linear / Vercel / Raycast estetiği için ek katman
+export const UI = {
+  // Arka plan katmanları
+  bg:          '#05050D',
+  bgRaised:    '#09091A',
+  bgFloat:     'rgba(9, 9, 22, 0.85)',
+
+  // Border'lar
+  border:      'rgba(255,255,255,0.07)',
+  borderHover: 'rgba(255,255,255,0.13)',
+  borderFocus: 'rgba(124,58,237,0.55)',
+
+  // Mesh gradient orb renkleri — çok daha koyu ve az doygun
+  orb1: 'rgba(70, 15, 140, 0.28)',    // derin mor
+  orb2: 'rgba(18, 50, 160, 0.20)',    // koyu mavi
+  orb3: 'rgba(45, 30, 130, 0.18)',    // koyu indigo
+  orb4: 'rgba(8,  70,  70, 0.10)',    // çok hafif teal aksan
+
+  // Glass kart gölgesi
+  cardShadowColor:   '#7C3AED',
+  cardShadowOpacity: 0.20,
+  cardShadowRadius:  20,
+} as const;
+
+// ─── Animasyon Preset'leri (Spring fizik) ─────────────────────────────────
+// withSpring(value, Spring.snappy) şeklinde kullanılır
+export const Spring = {
+  snappy:  { damping: 20, stiffness: 300 } as const,   // buton press
+  smooth:  { damping: 25, stiffness: 200 } as const,   // kart geçişleri
+  gentle:  { damping: 30, stiffness: 120 } as const,   // arka plan orb'lar
+  tabPill: { damping: 22, stiffness: 250 } as const,   // tab bar pill
+} as const;
+
 export const Colors = {
   light: {
     text: '#000000',
@@ -124,21 +158,35 @@ export function getEmotionMeta(rawLabel: string): EmotionMeta {
 
 export const Fonts = Platform.select({
   ios: {
-    sans: 'system-ui',
-    serif: 'ui-serif',
-    rounded: 'ui-rounded',
+    sans: 'PlusJakartaSans_400Regular',
+    sansMedium: 'PlusJakartaSans_500Medium',
+    sansSemiBold: 'PlusJakartaSans_600SemiBold',
+    sansBold: 'PlusJakartaSans_700Bold',
+    sansExtraBold: 'PlusJakartaSans_800ExtraBold',
     mono: 'ui-monospace',
   },
+  android: {
+    sans: 'PlusJakartaSans_400Regular',
+    sansMedium: 'PlusJakartaSans_500Medium',
+    sansSemiBold: 'PlusJakartaSans_600SemiBold',
+    sansBold: 'PlusJakartaSans_700Bold',
+    sansExtraBold: 'PlusJakartaSans_800ExtraBold',
+    mono: 'monospace',
+  },
   default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
+    sans: 'PlusJakartaSans_400Regular',
+    sansMedium: 'PlusJakartaSans_500Medium',
+    sansSemiBold: 'PlusJakartaSans_600SemiBold',
+    sansBold: 'PlusJakartaSans_700Bold',
+    sansExtraBold: 'PlusJakartaSans_800ExtraBold',
     mono: 'monospace',
   },
   web: {
     sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
+    sansMedium: 'var(--font-display)',
+    sansSemiBold: 'var(--font-display)',
+    sansBold: 'var(--font-display)',
+    sansExtraBold: 'var(--font-display)',
     mono: 'var(--font-mono)',
   },
 });

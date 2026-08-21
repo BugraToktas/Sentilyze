@@ -4,6 +4,14 @@ import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import {
+    useFonts,
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
+} from '@expo-google-fonts/plus-jakarta-sans';
 
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
 
@@ -27,13 +35,11 @@ function AuthGuard() {
         const inAppGroup  = segments[0] === '(app)';
 
         if (!user && !inAuthGroup) {
-            // Oturum yok → Login'e gönder
             router.replace('/(auth)/login');
         } else if (user && !inAppGroup) {
-            // Oturum var → Dashboard'a gönder
             router.replace('/(app)/dashboard');
         }
-    }, [user, isLoading]);   // segments'i bağımlılıktan çıkardık — sonsuz döngüyü önler
+    }, [user, isLoading]);
 
     return null;
 }
@@ -42,6 +48,20 @@ function AuthGuard() {
 // Root Layout
 // ---------------------------------------------------------------------------
 export default function RootLayout() {
+    const [fontsLoaded] = useFonts({
+        PlusJakartaSans_400Regular,
+        PlusJakartaSans_500Medium,
+        PlusJakartaSans_600SemiBold,
+        PlusJakartaSans_700Bold,
+        PlusJakartaSans_800ExtraBold,
+    });
+
+    useEffect(() => {
+        if (fontsLoaded) {
+            // Font yüklendikten sonra splash screen AuthGuard'a bırakılır
+        }
+    }, [fontsLoaded]);
+
     return (
         <AuthProvider>
             <StatusBar style="light" />
@@ -53,4 +73,3 @@ export default function RootLayout() {
         </AuthProvider>
     );
 }
-
