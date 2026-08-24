@@ -67,8 +67,7 @@ export default function ProgressRing({
                         strokeDasharray={`${circumference}`}
                         animatedProps={animatedProps}
                         strokeLinecap="round"
-                        rotation="-90"
-                        origin={`${cx}, ${cy}`}
+                        transform={`rotate(-90, ${cx}, ${cy})`}
                     />
                 </Svg>
                 {/* Center text */}

@@ -461,6 +461,7 @@ export interface ApiAnalysisItemAnalysisItem
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
     emotion_scores: Schema.Attribute.JSON;
+    job_id: Schema.Attribute.Integer;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<
       'oneToMany',
@@ -472,6 +473,7 @@ export interface ApiAnalysisItemAnalysisItem
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
+    user_id: Schema.Attribute.Integer;
     youtube_author: Schema.Attribute.String;
     youtube_like_count: Schema.Attribute.Integer;
   };
@@ -488,6 +490,7 @@ export interface ApiAnalysisJobAnalysisJob extends Struct.CollectionTypeSchema {
     draftAndPublish: false;
   };
   attributes: {
+    analyzed_items: Schema.Attribute.JSON;
     createdAt: Schema.Attribute.DateTime;
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
@@ -533,6 +536,7 @@ export interface ApiLiveSessionLiveSession extends Struct.CollectionTypeSchema {
       Schema.Attribute.Private;
     duration_secs: Schema.Attribute.Integer;
     emotions_timeline: Schema.Attribute.JSON;
+    ended_at: Schema.Attribute.DateTime;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<
       'oneToMany',
@@ -542,6 +546,7 @@ export interface ApiLiveSessionLiveSession extends Struct.CollectionTypeSchema {
     peak_emotion: Schema.Attribute.String;
     platform: Schema.Attribute.String;
     publishedAt: Schema.Attribute.DateTime;
+    stream_url: Schema.Attribute.String;
     total_buckets: Schema.Attribute.Integer;
     total_messages: Schema.Attribute.Integer;
     updatedAt: Schema.Attribute.DateTime;

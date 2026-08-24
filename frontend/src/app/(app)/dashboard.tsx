@@ -46,6 +46,15 @@ import SentilyzeIcon from '@/components/ui/SentilyzeIcon';
 const { width: SCREEN_W } = Dimensions.get('window');
 
 // ─── Tip Tanımları ─────────────────────────────────────────────────────────
+interface AnalyzedItem {
+    analyzed_text: string;
+    sentiment_label: string;
+    confidence_score: number;
+    emotion_scores: Record<string, number>;
+    youtube_author?: string;
+    youtube_like_count?: number;
+}
+
 interface HistoryJob {
     id: string;
     job_type: string;
@@ -56,6 +65,7 @@ interface HistoryJob {
     negative_count: number;
     neutral_count: number;
     created_at: string;
+    analyzed_items: AnalyzedItem[] | null;
     _source: 'job';
 }
 
@@ -118,6 +128,7 @@ export default function DashboardScreen() {
                 negative_count: number;
                 neutral_count: number;
                 youtube_video_title: string | null;
+                analyzed_items: AnalyzedItem[] | null;
                 createdAt: string;
             }>;
         }>('/api/analysis-jobs?sort=createdAt:desc&pagination[limit]=20');
@@ -148,6 +159,7 @@ export default function DashboardScreen() {
             negative_count: j.negative_count,
             neutral_count:  j.neutral_count,
             created_at:     j.createdAt,
+            analyzed_items: j.analyzed_items ?? null,
             _source:        'job' as const,
         }));
         const liveItems: LiveHistoryJob[] = (liveRes?.data ?? []).map((l) => ({
@@ -189,7 +201,16 @@ export default function DashboardScreen() {
             const emotionsSummary = data.data.scores
                 ? Object.fromEntries(Object.entries(data.data.scores).map(([k, v]) => [k, Math.round(v)]))
                 : { [data.data.label]: 1 };
-            saveJob('manual', 0, { total: 1, emotionsSummary });
+            saveJob('manual', 0, {
+                total: 1,
+                emotionsSummary,
+                analyzedItems: [{
+                    analyzed_text:    data.data.text,
+                    sentiment_label:  data.data.label,
+                    confidence_score: data.data.confidence,
+                    emotion_scores:   data.data.scores ?? {},
+                }],
+            });
         }
     };
 
@@ -208,7 +229,16 @@ export default function DashboardScreen() {
             for (const item of data.data) {
                 emotionsSummary[item.label] = (emotionsSummary[item.label] ?? 0) + 1;
             }
-            saveJob('batch', 0, { total: data.data.length, emotionsSummary });
+            saveJob('batch', 0, {
+                total: data.data.length,
+                emotionsSummary,
+                analyzedItems: data.data.map(item => ({
+                    analyzed_text:    item.text,
+                    sentiment_label:  item.label,
+                    confidence_score: item.confidence,
+                    emotion_scores:   item.scores ?? {},
+                })),
+            });
         }
     };
 
@@ -233,6 +263,14 @@ export default function DashboardScreen() {
                 youtube_video_title: data.video_info?.title,
                 youtube_video_id:    data.video_info?.video_id,
                 youtube_channel_name: data.video_info?.channel_title ?? data.video_info?.channel,
+                analyzedItems: (data.data ?? []).map(item => ({
+                    analyzed_text:      item.text,
+                    sentiment_label:    item.label,
+                    confidence_score:   item.confidence,
+                    emotion_scores:     item.scores ?? {},
+                    youtube_author:     item.author,
+                    youtube_like_count: item.like_count,
+                })),
             });
         }
     };
@@ -247,6 +285,7 @@ export default function DashboardScreen() {
             youtube_video_title?: string;
             youtube_video_id?: string;
             youtube_channel_name?: string;
+            analyzedItems?: AnalyzedItem[];
         },
     ) => {
         if (!user) return;
@@ -264,6 +303,8 @@ export default function DashboardScreen() {
                     youtube_video_title:  counts.youtube_video_title ?? null,
                     youtube_video_id:     counts.youtube_video_id ?? null,
                     youtube_channel_name: counts.youtube_channel_name ?? null,
+                    // En fazla 100 yorum sakla (boyutu sınırlamak için)
+                    analyzed_items: counts.analyzedItems?.slice(0, 100) ?? [],
                 },
             });
             if (error) {
@@ -602,6 +643,16 @@ const yt = StyleSheet.create({
 // HISTORY TAB
 // ═══════════════════════════════════════════════════════════════════════════
 function HistoryTab({ jobs, loading, onRefresh }: { jobs: (HistoryJob | LiveHistoryJob)[]; loading: boolean; onRefresh: () => void }) {
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+    const toggleExpand = (id: string) => {
+        setExpandedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
     const typeLabel: Record<string, string> = {
         manual:    '📝 Metin',
         batch:     '📄 Toplu',
@@ -705,10 +756,13 @@ function HistoryTab({ jobs, loading, onRefresh }: { jobs: (HistoryJob | LiveHist
                             ['Olumsuz', jobItem.negative_count],
                             ['Nötr',   jobItem.neutral_count],
                           ] as [string, number][];
+                    const isExpanded = expandedIds.has(jobItem.id);
+                    const items = jobItem.analyzed_items ?? [];
 
                     return (
                         <Animated.View entering={FadeInDown.delay(delay).springify().damping(20)}>
                             <GlassCard variant="subtle" noPadding>
+                                {/* ── Kart başlığı (her zaman görünür) ── */}
                                 <View style={{ padding: 16, gap: 10 }}>
                                     <View style={hist.cardTop}>
                                         <Text style={hist.typeTag}>{typeLabel[jobItem.job_type] ?? jobItem.job_type}</Text>
@@ -737,7 +791,44 @@ function HistoryTab({ jobs, loading, onRefresh }: { jobs: (HistoryJob | LiveHist
                                             );
                                         })}
                                     </View>
+
+                                    {/* ── Genişlet / Daralt butonu ── */}
+                                    {items.length > 0 && (
+                                        <TouchableOpacity
+                                            onPress={() => toggleExpand(jobItem.id)}
+                                            style={hist.expandBtn}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={hist.expandBtnText}>
+                                                {isExpanded ? '▲ Gizle' : `▼ ${items.length} yorumu gör`}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
+
+                                {/* ── Genişlemiş yorum listesi ── */}
+                                {isExpanded && items.length > 0 && (
+                                    <View style={hist.itemsList}>
+                                        {items.map((it, ci) => {
+                                            const m = getEmotionMeta(it.sentiment_label);
+                                            return (
+                                                <View key={ci} style={hist.commentRow}>
+                                                    <View style={[hist.emotionDot, { backgroundColor: m.color }]} />
+                                                    <View style={{ flex: 1, gap: 2 }}>
+                                                        <Text style={hist.commentText} numberOfLines={3}>{it.analyzed_text}</Text>
+                                                        <View style={hist.commentMeta}>
+                                                            <Text style={[hist.commentLabel, { color: m.color }]}>{m.emoji} {m.label}</Text>
+                                                            {it.youtube_author ? (
+                                                                <Text style={hist.commentAuthor}>@{it.youtube_author}</Text>
+                                                            ) : null}
+                                                            <Text style={hist.commentConf}>{Math.round(it.confidence_score)}%</Text>
+                                                        </View>
+                                                    </View>
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                )}
                             </GlassCard>
                         </Animated.View>
                     );
@@ -779,6 +870,29 @@ const hist = StyleSheet.create({
     date:            { fontSize: 12, color: 'rgba(255,255,255,0.32)', fontFamily: Fonts?.sans ?? undefined },
     videoTitle:      { fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 18, fontWeight: '600', fontFamily: Fonts?.sansSemiBold ?? undefined },
     totalText:       { fontSize: 12, color: 'rgba(255,255,255,0.38)', fontFamily: Fonts?.sans ?? undefined },
+    expandBtn: {
+        marginTop: 4,
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(124,58,237,0.10)',
+        borderWidth: 1, borderColor: 'rgba(124,58,237,0.22)',
+        borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5,
+    },
+    expandBtnText: { fontSize: 12, color: Brand.primaryLight, fontWeight: '600', fontFamily: Fonts?.sansSemiBold ?? undefined },
+    itemsList: {
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(255,255,255,0.06)',
+        paddingHorizontal: 16,
+        paddingBottom: 12,
+        paddingTop: 10,
+        gap: 14,
+    },
+    commentRow:    { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+    emotionDot:    { width: 6, height: 6, borderRadius: 3, marginTop: 5 },
+    commentText:   { fontSize: 13, color: 'rgba(255,255,255,0.72)', lineHeight: 18, fontFamily: Fonts?.sans ?? undefined },
+    commentMeta:   { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
+    commentLabel:  { fontSize: 11, fontWeight: '600', fontFamily: Fonts?.sansSemiBold ?? undefined },
+    commentAuthor: { fontSize: 11, color: 'rgba(255,255,255,0.30)', fontFamily: Fonts?.sans ?? undefined },
+    commentConf:   { fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: Fonts?.sans ?? undefined },
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -844,6 +958,7 @@ const prof = StyleSheet.create({
     scroll:     { padding: 24, gap: 20, alignItems: 'center', paddingBottom: 60 },
     avatarWrap: { alignItems: 'center', gap: 10, marginTop: 16 },
     avatarShadow: {
+        borderRadius:  45,
         shadowColor:   Brand.primary,
         shadowOpacity: 0.5,
         shadowRadius:  24,

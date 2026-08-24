@@ -38,6 +38,12 @@
     "emotions_timeline": {
       "type": "json"
     },
+    "stream_url": {
+      "type": "string"
+    },
+    "ended_at": {
+      "type": "datetime"
+    },
     "user_id": {
       "type": "integer"
     }
