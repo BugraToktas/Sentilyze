@@ -22,10 +22,12 @@ import GlassCard from '@/components/ui/GlassCard';
 import SpringButton from '@/components/ui/SpringButton';
 import SentilyzeIcon from '@/components/ui/SentilyzeIcon';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useToast } from '@/components/ui/Toast';
 
 export default function LoginScreen() {
     const { signIn } = useAuth();
     const router = useRouter();
+    const { showToast } = useToast();
 
     const [email,      setEmail]      = useState('');
     const [password,   setPassword]   = useState('');
@@ -49,7 +51,7 @@ export default function LoginScreen() {
 
     const handleSignIn = async () => {
         if (!email.trim() || !password.trim()) {
-            setError('Email ve şifre boş olamaz.');
+            showToast('Email ve şifre boş olamaz.', 'error');
             return;
         }
         setError(null);
@@ -57,8 +59,10 @@ export default function LoginScreen() {
         const { error: err } = await signIn(email.trim(), password);
         setLoading(false);
         if (err) {
+            showToast(err, 'error');
             setError(err);
         } else {
+            showToast('Başarıyla giriş yapıldı!', 'success');
             router.replace('/(app)/dashboard');
         }
     };
@@ -147,6 +151,13 @@ export default function LoginScreen() {
                                     style={{ marginTop: 4 }}
                                 />
 
+                                {/* Şifremi Unuttum */}
+                                <Link href="/(auth)/forgot-password" asChild>
+                                    <TouchableOpacity style={styles.forgotBtn} activeOpacity={0.7}>
+                                        <Text style={styles.forgotText}>Şifremi unuttum</Text>
+                                    </TouchableOpacity>
+                                </Link>
+
                                 <View style={styles.footer}>
                                     <Text style={styles.footerText}>Hesabın yok mu? </Text>
                                     <Link href="/(auth)/register" asChild>
@@ -190,6 +201,8 @@ const styles = StyleSheet.create({
         shadowRadius:  24,
         shadowOffset:  { width: 0, height: 8 },
         elevation:     12,
+        borderRadius:  20,
+        overflow:      'hidden',
     },
     logoGradient: {
         width:          64,
@@ -284,5 +297,13 @@ const styles = StyleSheet.create({
         fontSize:   14,
         fontWeight: '600',
         fontFamily: Fonts?.sansSemiBold ?? undefined,
+    },
+
+    // Şifremi unuttum
+    forgotBtn: { alignItems: 'center', paddingVertical: 2 },
+    forgotText: {
+        color:      'rgba(255,255,255,0.35)',
+        fontSize:   13,
+        fontFamily: Fonts?.sans ?? undefined,
     },
 });

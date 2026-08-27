@@ -14,6 +14,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
+import { ToastProvider } from '@/components/ui/Toast';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -64,12 +65,14 @@ export default function RootLayout() {
 
     return (
         <AuthProvider>
-            <StatusBar style="light" />
-            <AuthGuard />
-            <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="(auth)" />
-                <Stack.Screen name="(app)" />
-            </Stack>
+            <ToastProvider>
+                <StatusBar style="light" />
+                <AuthGuard />
+                <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="(auth)" />
+                    <Stack.Screen name="(app)" />
+                </Stack>
+            </ToastProvider>
         </AuthProvider>
     );
 }

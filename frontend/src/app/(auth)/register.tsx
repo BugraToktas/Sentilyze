@@ -240,6 +240,8 @@ const styles = StyleSheet.create({
         shadowRadius:  24,
         shadowOffset:  { width: 0, height: 8 },
         elevation:     12,
+        borderRadius:  18,
+        overflow:      'hidden',
     },
     logoGradient: {
         width:          60,

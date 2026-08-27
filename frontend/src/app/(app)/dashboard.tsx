@@ -18,6 +18,7 @@ import {
     Platform,
     Dimensions,
     FlatList,
+    Share,
 } from 'react-native';
 import Animated, {
     useSharedValue,
@@ -42,6 +43,7 @@ import ProgressRing from '@/components/ui/ProgressRing';
 import AnimatedBar from '@/components/ui/AnimatedBar';
 import ShimmerLoader from '@/components/ui/ShimmerLoader';
 import SentilyzeIcon from '@/components/ui/SentilyzeIcon';
+import { useToast } from '@/components/ui/Toast';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -899,6 +901,40 @@ const hist = StyleSheet.create({
 // PROFILE TAB
 // ═══════════════════════════════════════════════════════════════════════════
 function ProfileTab({ user, onSignOut }: { user: any; onSignOut: () => void }) {
+    const [stats, setStats] = useState<{
+        totalAnalysis: number;
+        topEmotion: string | null;
+        liveCount: number;
+    } | null>(null);
+
+    useEffect(() => {
+        (async () => {
+            // İstatistikleri topla
+            const { data: jobsRes } = await apiGet<{ data: Array<{ emotions_summary: Record<string, number> | null; job_type: string }> }>
+                ('/api/analysis-jobs?pagination[limit]=200&fields[0]=emotions_summary&fields[1]=job_type');
+            const { data: liveRes } = await apiGet<{ meta: { pagination: { total: number } } }>
+                ('/api/live-sessions?pagination[limit]=1&fields[0]=id');
+
+            const jobs = jobsRes?.data ?? [];
+            const totalAnalysis = jobs.length;
+            const liveCount = liveRes?.meta?.pagination?.total ?? 0;
+
+            // En sık duyguyu hesapla
+            const emotionTotals: Record<string, number> = {};
+            for (const job of jobs) {
+                if (!job.emotions_summary) continue;
+                for (const [emo, cnt] of Object.entries(job.emotions_summary)) {
+                    emotionTotals[emo] = (emotionTotals[emo] ?? 0) + (cnt as number);
+                }
+            }
+            const topEmotion = Object.entries(emotionTotals).sort(([, a], [, b]) => b - a)[0]?.[0] ?? null;
+
+            setStats({ totalAnalysis, topEmotion, liveCount });
+        })();
+    }, []);
+
+    const topMeta = stats?.topEmotion ? getEmotionMeta(stats.topEmotion) : null;
+
     return (
         <ScrollView contentContainerStyle={prof.scroll} showsVerticalScrollIndicator={false}>
             <Animated.View entering={FadeIn.duration(400)} style={prof.avatarWrap}>
@@ -939,6 +975,38 @@ function ProfileTab({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                 </View>
             </GlassCard>
 
+            {/* ── Kişisel İstatistikler ── */}
+            {stats !== null && (
+                <GlassCard variant="subtle" style={{ width: '100%' }}>
+                    <Text style={prof.cardTitle}>📊 İstatistiklerim</Text>
+                    <View style={prof.statsRow}>
+                        <View style={prof.statItem}>
+                            <Text style={prof.statValue}>{stats.totalAnalysis}</Text>
+                            <Text style={prof.statLabel}>Analiz</Text>
+                        </View>
+                        <View style={prof.statDivider} />
+                        <View style={prof.statItem}>
+                            <Text style={prof.statValue}>{stats.liveCount}</Text>
+                            <Text style={prof.statLabel}>Canlı Oturum</Text>
+                        </View>
+                        {topMeta && (
+                            <>
+                                <View style={prof.statDivider} />
+                                <View style={prof.statItem}>
+                                    <Text style={[prof.statValue, { color: topMeta.color }]}>
+                                        {topMeta.emoji}
+                                    </Text>
+                                    <Text style={prof.statLabel}>En Sık Duygu</Text>
+                                    <Text style={[prof.statSub, { color: topMeta.color }]}>
+                                        {topMeta.label}
+                                    </Text>
+                                </View>
+                            </>
+                        )}
+                    </View>
+                </GlassCard>
+            )}
+
             <SpringButton
                 label="🚪 Çıkış Yap"
                 onPress={() =>
@@ -959,6 +1027,7 @@ const prof = StyleSheet.create({
     avatarWrap: { alignItems: 'center', gap: 10, marginTop: 16 },
     avatarShadow: {
         borderRadius:  45,
+        overflow:      'hidden',
         shadowColor:   Brand.primary,
         shadowOpacity: 0.5,
         shadowRadius:  24,
@@ -977,6 +1046,13 @@ const prof = StyleSheet.create({
     rowKey:     { fontSize: 13, color: 'rgba(255,255,255,0.48)', fontFamily: Fonts?.sans ?? undefined },
     rowVal:     { fontSize: 13, color: 'rgba(255,255,255,0.85)', fontWeight: '500', fontFamily: Fonts?.sansMedium ?? undefined },
     divider:    { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginVertical: 10 },
+    // İstatistikler
+    statsRow:    { flexDirection: 'row', alignItems: 'stretch', marginTop: 8 },
+    statItem:    { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 4 },
+    statValue:   { fontSize: 22, fontWeight: '800', color: '#fff', fontFamily: Fonts?.sansExtraBold ?? undefined },
+    statLabel:   { fontSize: 10, color: 'rgba(255,255,255,0.42)', fontFamily: Fonts?.sans ?? undefined, textAlign: 'center' },
+    statSub:     { fontSize: 11, fontWeight: '600', fontFamily: Fonts?.sansSemiBold ?? undefined },
+    statDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.07)', marginVertical: 4 },
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -993,20 +1069,62 @@ function ErrorBox({ msg }: { msg: string }) {
 
 function SingleResultCard({ result }: { result: SingleAnalysisResult }) {
     const meta = getEmotionMeta(result.label);
+    const { showToast } = useToast();
+
+    const handleShare = async () => {
+        const topEmotions = result.scores
+            ? Object.entries(result.scores)
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 3)
+                .map(([lbl, pct]) => {
+                    const em = getEmotionMeta(lbl);
+                    return `  ${em.emoji} ${em.label}: %${Math.round(pct)}`;
+                })
+                .join('\n')
+            : '';
+
+        const preview = result.text
+            ? `"${result.text.slice(0, 120)}${result.text.length > 120 ? '...' : ''}"`
+            : '';
+
+        const shareText = [
+            'Sentilyze Duygu Analizi',
+            '',
+            preview ? `Metin: ${preview}` : '',
+            '',
+            `${meta.emoji} Duygu: ${meta.label}`,
+            `Guven: %${result.confidence.toFixed(1)}`,
+            topEmotions ? `\nDagilim:\n${topEmotions}` : '',
+            '',
+            'Sentilyze ile analiz edildi',
+        ].filter(Boolean).join('\n');
+
+        try {
+            await Share.share({ message: shareText, title: 'Sentilyze Analiz Sonucu' });
+        } catch {
+            showToast('Paylasim basarisiz oldu.', 'error');
+        }
+    };
+
     return (
         <Animated.View entering={FadeInDown.springify().damping(20)} style={[shared.resultCard, { borderColor: meta.color + '40', backgroundColor: meta.bg }]}>
             <View style={shared.resultTop}>
                 <Text style={shared.resultEmoji}>{meta.emoji}</Text>
                 <View style={{ flex: 1 }}>
                     <Text style={[shared.resultLabel, { color: meta.color }]}>{meta.label}</Text>
-                    <Text style={shared.resultConf}>%{result.confidence.toFixed(1)} güven</Text>
+                    <Text style={shared.resultConf}>%{result.confidence.toFixed(1)} guven</Text>
                 </View>
-                <Text style={shared.resultTime}>{result.process_time_ms}ms</Text>
+                <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                    <Text style={shared.resultTime}>{result.process_time_ms}ms</Text>
+                    <TouchableOpacity onPress={handleShare} style={shared.shareBtn} activeOpacity={0.7}>
+                        <Text style={shared.shareBtnText}>Paylas</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
-            {/* Güven çubuğu */}
+            {/* Guven cubugu */}
             <AnimatedBar
-                label="Güven"
+                label="Guven"
                 count={Math.round(result.confidence)}
                 total={100}
                 color={meta.color}
@@ -1014,7 +1132,7 @@ function SingleResultCard({ result }: { result: SingleAnalysisResult }) {
 
             {result.scores && Object.keys(result.scores).length > 1 && (
                 <View style={{ gap: 8, marginTop: 4 }}>
-                    <Text style={shared.scoresTitle}>Duygu Dağılımı</Text>
+                    <Text style={shared.scoresTitle}>Duygu Dagilimi</Text>
                     {Object.entries(result.scores)
                         .sort(([, a], [, b]) => b - a)
                         .slice(0, 5)
@@ -1202,7 +1320,7 @@ const shared = StyleSheet.create({
     },
     errorText:    { color: '#FCA5A5', fontSize: 13, fontFamily: Fonts?.sans ?? undefined },
     resultCard:   { borderRadius: 16, borderWidth: 1, padding: 18, gap: 12 },
-    resultTop:    { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    resultTop:    { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
     resultEmoji:  { fontSize: 32 },
     resultLabel:  { fontSize: 20, fontWeight: '800', fontFamily: Fonts?.sansExtraBold ?? undefined },
     resultConf:   { fontSize: 13, color: 'rgba(255,255,255,0.48)', marginTop: 2, fontFamily: Fonts?.sans ?? undefined },
@@ -1219,6 +1337,16 @@ const shared = StyleSheet.create({
     batchDot:       { width: 8, height: 8, borderRadius: 4 },
     batchItemText:  { flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.62)', fontFamily: Fonts?.sans ?? undefined },
     batchItemLabel: { fontSize: 12, fontWeight: '600', fontFamily: Fonts?.sansSemiBold ?? undefined },
+    // Paylas butonu
+    shareBtn: {
+        backgroundColor:  'rgba(124,58,237,0.14)',
+        borderRadius:     8,
+        borderWidth:      1,
+        borderColor:      'rgba(124,58,237,0.30)',
+        paddingHorizontal: 10,
+        paddingVertical:   4,
+    },
+    shareBtnText: { fontSize: 11, color: Brand.primaryLight, fontWeight: '600', fontFamily: Fonts?.sansSemiBold ?? undefined },
 });
 
 // ─── Ana ekran stilleri ────────────────────────────────────────────────────
@@ -1239,6 +1367,8 @@ const s = StyleSheet.create({
         shadowRadius:  16,
         shadowOffset:  { width: 0, height: 4 },
         elevation:     8,
+        borderRadius:  12,
+        overflow:      'hidden',
     },
     headerLogo:     { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
     headerLogoText: { fontSize: 18, color: '#fff' },
