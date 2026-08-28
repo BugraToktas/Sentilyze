@@ -92,6 +92,7 @@ class LiveSession:
 SESSIONS: Dict[str, LiveSession] = {}
 
 BUCKET_SECONDS = 10
+ALL_LABELS = ["korku", "mutluluk", "ofke", "saskinlik", "uzuntu"]
 
 # ---------------------------------------------------------------------------
 # YouTube Data API — Video bilgisi + liveChatId
@@ -363,7 +364,8 @@ async def run_live_session(
                     if not counts:
                         continue
                     total    = sum(counts.values())
-                    emotions = {k: round(v / total * 100, 1) for k, v in counts.items()}
+                    # Eksik duygular 0.0 olarak eklenir — grafik sıfıra iner
+                    emotions = {k: round(counts.get(k, 0) / total * 100, 1) for k in ALL_LABELS}
                     dominant = max(counts, key=counts.get)
                     samples  = b_data["samples"]
 

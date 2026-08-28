@@ -210,12 +210,11 @@ export default function EmotionLineChart({
                 {/* Her duygu için çizgi + noktalar */}
                 {activeKeys.map(key => {
                     const meta = getEmotionMeta(key);
-                    const pts = dataPoints
-                        .filter(dp => dp.emotions[key] !== undefined)
-                        .map(dp => ({
-                            x: PAD.left + toX(dp.bucket_sec, maxSec, innerW),
-                            y: PAD.top + toY(dp.emotions[key], innerH),
-                        }));
+                    // Eksik değerler 0 olarak yorumlanır — grafik sıfıra iner
+                    const pts = dataPoints.map(dp => ({
+                        x: PAD.left + toX(dp.bucket_sec, maxSec, innerW),
+                        y: PAD.top + toY(dp.emotions[key] ?? 0, innerH),
+                    }));
 
                     return (
                         <React.Fragment key={key}>
